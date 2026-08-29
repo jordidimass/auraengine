@@ -18,16 +18,19 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     // No deployment linked yet (`npx convex dev` / `npx convex deploy` has
     // never run). Pages that don't touch Convex — the signed-out marketing
     // page — still render fine with no provider; anything calling
-    // useQuery/useAction throws "Could not find Convex client", so catch
-    // that here instead of showing Next's default crash screen.
+    // useQuery/useAction throws "Could not find Convex client", caught below.
     return (
-      <ConvexUnavailableBoundary>{children}</ConvexUnavailableBoundary>
+      <ConvexUnavailableBoundary message="NEXT_PUBLIC_CONVEX_URL isn't set. Run `npx convex dev` and set it to fix this.">
+        {children}
+      </ConvexUnavailableBoundary>
     );
   }
 
   return (
-    <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
-      {children}
-    </ConvexProviderWithClerk>
+    <ConvexUnavailableBoundary>
+      <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+        {children}
+      </ConvexProviderWithClerk>
+    </ConvexUnavailableBoundary>
   );
 }
