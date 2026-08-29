@@ -8,6 +8,11 @@ import {
   query,
 } from "./_generated/server";
 import { requireBrandOwner } from "./authz";
+import {
+  assertPositiveInteger,
+  assetKindValidator,
+  videoAspectRatioValidator,
+} from "./domain";
 import { requireSteal } from "./stealAccess";
 
 export const getAssets = query({
@@ -35,36 +40,95 @@ export const getAssets = query({
         audioUrl: asset.audioStorageId
           ? await ctx.storage.getUrl(asset.audioStorageId)
           : null,
+        videoUrl: asset.videoStorageId
+          ? await ctx.storage.getUrl(asset.videoStorageId)
+          : null,
+        videoDurationSeconds: asset.videoDurationSeconds ?? null,
+        videoAspectRatio: asset.videoAspectRatio ?? null,
       })),
     );
+  },
+});
+
+export const generateUploadUrl = mutation({
+  args: { stealId: v.id("aura_steals") },
+  handler: async (ctx, args) => {
+    await requireSteal(ctx, args.stealId);
+    return await ctx.storage.generateUploadUrl();
   },
 });
 
 export const saveAsset = mutation({
   args: {
     stealId: v.id("aura_steals"),
-    kind: v.union(v.literal("image"), v.literal("audio")),
+    kind: assetKindValidator,
     storageId: v.id("_storage"),
+    videoDurationSeconds: v.optional(v.number()),
+    videoAspectRatio: v.optional(videoAspectRatioValidator),
   },
   handler: async (ctx, args) => {
+    if (args.videoDurationSeconds !== undefined) {
+      assertPositiveInteger(args.videoDurationSeconds, "videoDurationSeconds");
+    }
     const { steal } = await requireSteal(ctx, args.stealId);
+    const metadata = await ctx.db.system.get("_storage", args.storageId);
+    if (metadata === null) {
+      throw new ConvexError({
+        code: "ASSET_FILE_NOT_FOUND",
+        message: "The uploaded file does not exist",
+      });
+    }
+    const expectedContentTypePrefix = `${args.kind}/`;
+    if (
+      metadata.contentType === undefined ||
+      !metadata.contentType.startsWith(expectedContentTypePrefix)
+    ) {
+      throw new ConvexError({
+        code: "INVALID_ASSET_CONTENT_TYPE",
+        message: `${args.kind} assets require a ${expectedContentTypePrefix}* content type`,
+      });
+    }
+
     const latest = await ctx.db
       .query("publication_assets")
       .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
       .order("desc")
       .first();
-    if (latest === null) {
+    if (latest?.status === "generating") {
       throw new ConvexError({
-        code: "ASSET_NOT_FOUND",
-        message: "Generate an analysis before attaching assets",
+        code: "ASSET_GENERATION_IN_PROGRESS",
+        message: "Wait for the current asset generation to finish",
       });
     }
+
+    const mediaFields =
+      args.kind === "image"
+        ? { imageStorageId: args.storageId }
+        : args.kind === "audio"
+          ? { audioStorageId: args.storageId }
+          : {
+              videoStorageId: args.storageId,
+              videoDurationSeconds: args.videoDurationSeconds,
+              videoAspectRatio: args.videoAspectRatio,
+            };
+
+    if (latest === null) {
+      await ctx.db.insert("publication_assets", {
+        stealId: args.stealId,
+        brandId: steal.brandId,
+        visualPrompt: `Cyberpunk social post visual for: ${steal.generatedResponse.slice(0, 280)}`,
+        status: "ready",
+        generation: 1,
+        createdAt: Date.now(),
+        ...mediaFields,
+      });
+      return null;
+    }
+
     await ctx.db.patch(latest._id, {
       brandId: steal.brandId,
       status: "ready",
-      ...(args.kind === "image"
-        ? { imageStorageId: args.storageId }
-        : { audioStorageId: args.storageId }),
+      ...mediaFields,
     });
     return null;
   },
@@ -73,7 +137,7 @@ export const saveAsset = mutation({
 export const prepareGeneration = internalMutation({
   args: {
     stealId: v.id("aura_steals"),
-    kind: v.union(v.literal("image"), v.literal("audio")),
+    kind: assetKindValidator,
   },
   handler: async (ctx, args) => {
     const { steal } = await requireSteal(ctx, args.stealId);
@@ -82,6 +146,13 @@ export const prepareGeneration = internalMutation({
       .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
       .order("desc")
       .first();
+
+    if (latest?.status === "generating") {
+      throw new ConvexError({
+        code: "ASSET_GENERATION_IN_PROGRESS",
+        message: "Wait for the current asset generation to finish",
+      });
+    }
 
     const visualPrompt =
       latest?.visualPrompt ||
@@ -97,7 +168,9 @@ export const prepareGeneration = internalMutation({
     }
 
     const nextGeneration =
-      args.kind === "image" ? (latest?.generation ?? 0) + 1 : (latest?.generation ?? 1);
+      args.kind === "audio"
+        ? (latest?.generation ?? 1)
+        : (latest?.generation ?? 0) + 1;
 
     const assetId = await ctx.db.insert("publication_assets", {
       stealId: args.stealId,
@@ -107,6 +180,9 @@ export const prepareGeneration = internalMutation({
       generation: Math.max(nextGeneration, 1),
       imageStorageId: latest?.imageStorageId,
       audioStorageId: latest?.audioStorageId,
+      videoStorageId: latest?.videoStorageId,
+      videoDurationSeconds: latest?.videoDurationSeconds,
+      videoAspectRatio: latest?.videoAspectRatio,
       createdAt: Date.now(),
     });
     return { assetId, visualPrompt, copy: steal.generatedResponse };
@@ -116,11 +192,16 @@ export const prepareGeneration = internalMutation({
 export const finishGeneration = internalMutation({
   args: {
     assetId: v.id("publication_assets"),
-    kind: v.union(v.literal("image"), v.literal("audio")),
+    kind: assetKindValidator,
     storageId: v.optional(v.id("_storage")),
+    videoDurationSeconds: v.optional(v.number()),
+    videoAspectRatio: v.optional(videoAspectRatioValidator),
     error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    if (args.videoDurationSeconds !== undefined) {
+      assertPositiveInteger(args.videoDurationSeconds, "videoDurationSeconds");
+    }
     const asset = await ctx.db.get(args.assetId);
     if (asset === null) {
       throw new ConvexError({
@@ -137,7 +218,13 @@ export const finishGeneration = internalMutation({
       status: "ready",
       ...(args.kind === "image"
         ? { imageStorageId: args.storageId }
-        : { audioStorageId: args.storageId }),
+        : args.kind === "audio"
+          ? { audioStorageId: args.storageId }
+          : {
+              videoStorageId: args.storageId,
+              videoDurationSeconds: args.videoDurationSeconds,
+              videoAspectRatio: args.videoAspectRatio,
+            }),
     });
   },
 });
@@ -189,6 +276,61 @@ async function generateFalImage(prompt: string): Promise<string> {
     throw new ConvexError({
       code: "FAL_FAILED",
       message: "fal.ai returned no image URL",
+    });
+  }
+  return url;
+}
+
+async function generateFalVideo(
+  prompt: string,
+  duration: 5 | 10,
+  aspectRatio: "16:9" | "9:16" | "1:1",
+): Promise<string> {
+  const key = process.env.FAL_KEY;
+  if (!key) {
+    throw new ConvexError({
+      code: "MISSING_FAL_KEY",
+      message: "FAL_KEY is not set in the Convex dashboard",
+    });
+  }
+
+  const model =
+    process.env.FAL_VIDEO_MODEL ??
+    "fal-ai/kling-video/v1/standard/text-to-video";
+  if (!/^[a-z0-9][a-z0-9._/-]*$/i.test(model)) {
+    throw new ConvexError({
+      code: "INVALID_FAL_VIDEO_MODEL",
+      message: "FAL_VIDEO_MODEL must be a valid fal.ai model identifier",
+    });
+  }
+
+  const response = await fetch(`https://fal.run/${model}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      prompt: prompt.slice(0, 2500),
+      duration: String(duration),
+      aspect_ratio: aspectRatio,
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ConvexError({
+      code: "FAL_VIDEO_FAILED",
+      message: `fal.ai video generation failed (${response.status}): ${detail.slice(0, 300)}`,
+    });
+  }
+  const body = (await response.json()) as {
+    video?: { url?: string };
+  };
+  const url = body.video?.url;
+  if (!url) {
+    throw new ConvexError({
+      code: "FAL_VIDEO_FAILED",
+      message: "fal.ai returned no video URL",
     });
   }
   return url;
@@ -281,6 +423,47 @@ export const generateVoice = action({
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "audio",
+        error: message,
+      });
+      throw error;
+    }
+  },
+});
+
+export const generateVideo = action({
+  args: {
+    stealId: v.id("aura_steals"),
+    duration: v.optional(v.union(v.literal(5), v.literal(10))),
+    aspectRatio: v.optional(videoAspectRatioValidator),
+  },
+  handler: async (ctx, args): Promise<Id<"publication_assets">> => {
+    const duration = args.duration ?? 5;
+    const aspectRatio = args.aspectRatio ?? "1:1";
+    const prepared = await ctx.runMutation(internal.assets.prepareGeneration, {
+      stealId: args.stealId,
+      kind: "video",
+    });
+    try {
+      const videoUrl = await generateFalVideo(
+        prepared.visualPrompt,
+        duration,
+        aspectRatio,
+      );
+      const storageId = await storeFromUrl(ctx, videoUrl);
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: prepared.assetId,
+        kind: "video",
+        storageId,
+        videoDurationSeconds: duration,
+        videoAspectRatio: aspectRatio,
+      });
+      return prepared.assetId;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Video generation failed";
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: prepared.assetId,
+        kind: "video",
         error: message,
       });
       throw error;

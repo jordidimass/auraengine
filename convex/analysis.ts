@@ -461,7 +461,7 @@ async function insertSteal(
       stealId,
       brandId: args.brandId,
       visualPrompt: prompt,
-      status: "generating",
+      status: "ready",
       generation: 1,
       createdAt: Date.now(),
     });

@@ -62,13 +62,19 @@ export const enqueue = mutation({
         q.eq("brandId", brand._id).eq("platform", args.platform),
       )
       .unique();
-    const mode = account?.status === "active" ? "live" : "draft";
 
     const latestAsset = await ctx.db
       .query("publication_assets")
       .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
       .order("desc")
       .first();
+    const hasMedia = Boolean(
+      latestAsset?.imageStorageId || latestAsset?.videoStorageId,
+    );
+    // The current X and LinkedIn adapters are text-only. Preserve media in a
+    // draft instead of silently publishing only the text and reporting success.
+    const mode =
+      account?.status === "active" && !hasMedia ? "live" : "draft";
 
     const publicationId = await ctx.db.insert("publications", {
       brandId: brand._id,
@@ -77,6 +83,9 @@ export const enqueue = mutation({
       mode,
       finalText,
       imageStorageId: latestAsset?.imageStorageId,
+      videoStorageId: latestAsset?.videoStorageId,
+      videoDurationSeconds: latestAsset?.videoDurationSeconds,
+      videoAspectRatio: latestAsset?.videoAspectRatio,
       status: "pending",
       retryCount: 0,
     });

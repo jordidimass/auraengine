@@ -177,6 +177,13 @@ export default defineSchema({
     visualPrompt:   v.string(),
     imageStorageId: v.optional(v.id("_storage")),
     audioStorageId: v.optional(v.id("_storage")),
+    videoStorageId: v.optional(v.id("_storage")),
+    videoDurationSeconds: v.optional(v.number()),
+    videoAspectRatio: v.optional(v.union(
+      v.literal("16:9"),
+      v.literal("9:16"),
+      v.literal("1:1"),
+    )),
     status: v.union(
       v.literal("generating"),
       v.literal("ready"),
@@ -195,6 +202,13 @@ export default defineSchema({
     mode:           v.union(v.literal("live"), v.literal("draft")),
     finalText:      v.string(),
     imageStorageId: v.optional(v.id("_storage")),
+    videoStorageId: v.optional(v.id("_storage")),
+    videoDurationSeconds: v.optional(v.number()),
+    videoAspectRatio: v.optional(v.union(
+      v.literal("16:9"),
+      v.literal("9:16"),
+      v.literal("1:1"),
+    )),
     status: v.union(
       v.literal("pending"),
       v.literal("publishing"),
@@ -272,8 +286,10 @@ con `generation` sin ensuciar el registro del análisis.
 |---|---|---|---|
 | action | `generateImage` | `{ stealId }` | fal.ai → `_storage`. Incrementa `generation` |
 | action | `generateVoice` | `{ stealId }` | ElevenLabs → `_storage` |
+| action | `generateVideo` | `{ stealId, duration?, aspectRatio? }` | fal.ai → `_storage`. Duración 5s o 10s |
 | query | `getAssets` | `{ stealId }` | URLs firmadas — suscripción de la vista 3 |
-| mutation | `saveAsset` | `{ stealId, kind, storageId }` | `null` |
+| mutation | `generateUploadUrl` | `{ stealId }` | URL temporal para subir imagen, audio o video |
+| mutation | `saveAsset` | `{ stealId, kind, storageId, videoDurationSeconds?, videoAspectRatio? }` | `null` |
 
 ### `convex/publisher.ts` — Hugo / Hector
 
@@ -283,6 +299,10 @@ con `generation` sin ensuciar el registro del análisis.
 | action | `execute` | `{ publicationId }` | Publica. Reprograma con backoff si falla |
 | query | `history` | `{ brandId, limit? }` | Publicaciones de la marca |
 | query | `brandAura` | `{ brandId }` | Suma del ledger — alimenta el contador |
+
+Las publicaciones con imagen o video se conservan como `draft` hasta que los
+adaptadores de X y LinkedIn implementen la subida nativa de media. Esto evita
+marcar como enviada una publicación donde solo se publicó el texto.
 
 ### `convex/social.ts` — Hugo / Hector
 
