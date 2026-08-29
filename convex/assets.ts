@@ -1,5 +1,4 @@
 import { ConvexError, v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
@@ -7,8 +6,31 @@ import {
   internalMutation,
   mutation,
   query,
+  type ActionCtx,
 } from "./_generated/server";
 import { requireSteal } from "./stealAccess";
+
+async function requireActionUserId(ctx: ActionCtx): Promise<Id<"users">> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) {
+    throw new ConvexError({
+      code: "UNAUTHENTICATED",
+      message: "You must be signed in",
+    });
+  }
+
+  const userId = await ctx.runQuery(internal.users.getUserIdByClerk, {
+    clerkId: identity.subject,
+  });
+  if (userId === null) {
+    throw new ConvexError({
+      code: "UNAUTHENTICATED",
+      message: "User profile not found. Call users.ensure after sign-in.",
+    });
+  }
+
+  return userId;
+}
 
 export const getAssets = query({
   args: { stealId: v.id("aura_steals") },
@@ -257,13 +279,7 @@ async function generateElevenLabsAudio(text: string): Promise<ArrayBuffer> {
 export const generateImage = action({
   args: { stealId: v.id("aura_steals") },
   handler: async (ctx, args): Promise<Id<"publication_assets">> => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) {
-      throw new ConvexError({
-        code: "UNAUTHENTICATED",
-        message: "You must be signed in",
-      });
-    }
+    const userId = await requireActionUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyStealOwner, {
       stealId: args.stealId,
       userId,
@@ -298,13 +314,7 @@ export const generateImage = action({
 export const generateVoice = action({
   args: { stealId: v.id("aura_steals") },
   handler: async (ctx, args): Promise<Id<"publication_assets">> => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) {
-      throw new ConvexError({
-        code: "UNAUTHENTICATED",
-        message: "You must be signed in",
-      });
-    }
+    const userId = await requireActionUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyStealOwner, {
       stealId: args.stealId,
       userId,

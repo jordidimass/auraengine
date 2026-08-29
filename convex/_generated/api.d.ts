@@ -10,7 +10,6 @@
 
 import type * as analysis from "../analysis.js";
 import type * as assets from "../assets.js";
-import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as brandDefaults from "../brandDefaults.js";
 import type * as brands from "../brands.js";
@@ -23,6 +22,7 @@ import type * as preferences from "../preferences.js";
 import type * as publisher from "../publisher.js";
 import type * as social from "../social.js";
 import type * as stealAccess from "../stealAccess.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -33,7 +33,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   analysis: typeof analysis;
   assets: typeof assets;
-  auth: typeof auth;
   authz: typeof authz;
   brandDefaults: typeof brandDefaults;
   brands: typeof brands;
@@ -46,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   publisher: typeof publisher;
   social: typeof social;
   stealAccess: typeof stealAccess;
+  users: typeof users;
 }>;
 
 /**

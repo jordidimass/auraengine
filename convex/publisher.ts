@@ -79,7 +79,6 @@ export const enqueue = mutation({
       )
       .unique();
     const mode = account?.status === "active" ? "live" : "draft";
-    const auraDelta = projectedAuraGain(steal.auraOpportunityScore);
 
     const latestAsset = await ctx.db
       .query("publication_assets")
@@ -101,18 +100,20 @@ export const enqueue = mutation({
     await ctx.db.insert("aura_ledger", {
       brandId: brand._id,
       stealId: args.stealId,
-      auraDelta,
+      auraDelta: steal.auraOpportunityScore,
       reason: mode === "live" ? "queued live publish" : "draft aura credit",
       createdAt: Date.now(),
     });
 
-    await ctx.db.patch(args.stealId, { editedResponse: finalText });
+    if (finalText !== steal.generatedResponse) {
+      await ctx.db.patch(args.stealId, { editedResponse: finalText });
+    }
 
     await ctx.scheduler.runAfter(0, api.publisher.execute, {
       publicationId,
     });
 
-    return { publicationId, mode, auraDelta };
+    return { publicationId, mode };
   },
 });
 

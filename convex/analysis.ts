@@ -1,4 +1,3 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
@@ -9,6 +8,7 @@ import {
   internalQuery,
   mutation,
   query,
+  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -24,6 +24,28 @@ import { runLlmAnalysis } from "./lib/llm";
 import { assertCompetitorPostUrl, scrapeCompetitorPost } from "./lib/scrape";
 import { detectPlatformFromUrl, requireIntegerRisk } from "./lib/risk";
 import { requireSteal } from "./stealAccess";
+
+async function requireActionUserId(ctx: ActionCtx): Promise<Id<"users">> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (identity === null) {
+    throw new ConvexError({
+      code: "UNAUTHENTICATED",
+      message: "You must be signed in",
+    });
+  }
+
+  const userId = await ctx.runQuery(internal.users.getUserIdByClerk, {
+    clerkId: identity.subject,
+  });
+  if (userId === null) {
+    throw new ConvexError({
+      code: "UNAUTHENTICATED",
+      message: "User profile not found. Call users.ensure after sign-in.",
+    });
+  }
+
+  return userId;
+}
 
 const metricsValidator = v.object({
   likes: v.number(),
@@ -383,7 +405,7 @@ export const analyzePostPipeline = internalAction({
     targetPlatform: platformValidator,
     userContext: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"aura_steals">> => {
     const riskLevel = requireIntegerRisk(args.riskLevel);
 
     try {
@@ -434,7 +456,7 @@ export const analyzePostPipeline = internalAction({
         useHashtags: packed.preferences.useHashtags,
       });
 
-      await ctx.runMutation(internal.analysis.saveStealInternal, {
+      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
         postId: args.postId,
         riskLevel,
         userContext: args.userContext,
@@ -444,6 +466,7 @@ export const analyzePostPipeline = internalAction({
         targetPlatform: args.targetPlatform,
         visualPrompt: analysis.visualPrompt,
       });
+      return stealId;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Analysis pipeline failed";
@@ -469,13 +492,7 @@ export const analyzeUrl = action({
     ctx,
     args,
   ): Promise<{ postId: Id<"competitor_posts">; stealId: Id<"aura_steals"> }> => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) {
-      throw new ConvexError({
-        code: "UNAUTHENTICATED",
-        message: "You must be signed in",
-      });
-    }
+    const userId = await requireActionUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyBrandOwner, {
       brandId: args.brandId,
       userId,
@@ -503,47 +520,11 @@ export const analyzeUrl = action({
         platform: scraped.platform,
       });
 
-      const packed = await ctx.runQuery(internal.analysis.loadAnalysisContext, {
-        brandId: args.brandId,
-        postId,
-        targetPlatform: args.targetPlatform,
-      });
-      if (packed.post === null || packed.preferences === null) {
-        throw new ConvexError({
-          code: "POST_NOT_FOUND",
-          message: "Post disappeared during analysis",
-        });
-      }
-
-      const analysis = await runLlmAnalysis({
-        brandName: packed.brand.name,
-        industry: packed.brand.industry,
-        description: packed.brand.description,
-        tone: packed.preferences.tone,
-        bannedPhrases: packed.preferences.bannedPhrases,
-        bannedTopics: packed.preferences.bannedTopics,
-        customInstructions: packed.preferences.customInstructions,
-        riskLevel,
-        platform: args.targetPlatform,
-        originalContent: packed.post.originalContent,
-        authorHandle: packed.post.authorHandle,
-        metrics: packed.post.metrics,
-        topReplies: packed.post.topReplies,
-        userContext: args.userContext,
-        maxLength: packed.preferences.maxLength,
-        useEmojis: packed.preferences.useEmojis,
-        useHashtags: packed.preferences.useHashtags,
-      });
-
-      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
+      const stealId = await ctx.runAction(internal.analysis.analyzePostPipeline, {
         postId,
         riskLevel,
-        userContext: args.userContext,
-        score: analysis.auraScore,
-        weakness: analysis.weakness,
-        response: analysis.response,
         targetPlatform: args.targetPlatform,
-        visualPrompt: analysis.visualPrompt,
+        userContext: args.userContext,
       });
 
       return { postId, stealId };
@@ -566,13 +547,7 @@ export const regenerateCopy = action({
     riskLevel: v.number(),
   },
   handler: async (ctx, args): Promise<Id<"aura_steals">> => {
-    const userId = await getAuthUserId(ctx);
-    if (userId === null) {
-      throw new ConvexError({
-        code: "UNAUTHENTICATED",
-        message: "You must be signed in",
-      });
-    }
+    const userId = await requireActionUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyStealOwner, {
       stealId: args.stealId,
       userId,

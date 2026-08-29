@@ -1,23 +1,11 @@
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
+import { requireUserId } from "./users";
 
-type AuthContext = Pick<QueryCtx, "auth"> | Pick<MutationCtx, "auth">;
 type DatabaseContext =
   | Pick<QueryCtx, "auth" | "db">
   | Pick<MutationCtx, "auth" | "db">;
-
-export async function requireUserId(ctx: AuthContext): Promise<Id<"users">> {
-  const userId = await getAuthUserId(ctx);
-  if (userId === null) {
-    throw new ConvexError({
-      code: "UNAUTHENTICATED",
-      message: "You must be signed in",
-    });
-  }
-  return userId;
-}
 
 export async function requireBrandOwner(
   ctx: DatabaseContext,
@@ -43,3 +31,5 @@ export async function requireBrandOwner(
 
   return brand;
 }
+
+export { requireUserId } from "./users";

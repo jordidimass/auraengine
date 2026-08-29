@@ -1,122 +1,67 @@
-"use client";
+import { AuthControls } from "@/components/auth/AuthControls";
+import { AsciiBanner } from "@/components/brand/AsciiBanner";
 
-import { useQuery } from "convex/react";
-import { Loader2, Radar } from "lucide-react";
-import Link from "next/link";
-import { useState } from "react";
-import { AuraCounter } from "@/components/AuraCounter";
-import { PostCard, type CompetitorSteal } from "@/components/PostCard";
-import { analyzePath, preferencesPath } from "@/lib/routes";
-import { api } from "../../convex/_generated/api";
-
-const MOCK_FEED: CompetitorSteal[] = [
+const STEPS = [
   {
-    id: "1",
-    competitorName: "rivalstartup",
-    originalContent:
-      "Our new dashboard redesign is finally live. Took us 6 months but worth it!",
-    targetWeakness:
-      "Replies are pointing out the redesign removed dark mode and broke keyboard shortcuts.",
-    generatedResponse:
-      "6 months for a redesign that ships without dark mode? We shipped ours with day-one shortcut support.",
-    auraOpportunityScore: 82,
-    projectedAuraGain: 4200,
-    status: "ready",
+    n: "01",
+    title: "Paste the thread",
+    body: "Drop a competitor URL. Aura pulls the post, metrics, and the replies that already smell weakness.",
   },
   {
-    id: "2",
-    competitorName: "growthbro",
-    originalContent:
-      "Hot take: AI agents are overhyped and will plateau in 2026.",
-    targetWeakness:
-      "No data cited, thread is getting ratio'd by builders shipping agent products daily.",
-    generatedResponse:
-      "Plateau? We shipped 3 agent releases this quarter. Overhyped things don't ship, they get talked about.",
-    auraOpportunityScore: 67,
-    projectedAuraGain: 2100,
-    status: "detected",
+    n: "02",
+    title: "Set the risk",
+    body: "Diplomatic to roast. One slider. The draft changes register, not just adjectives.",
   },
-];
+  {
+    n: "03",
+    title: "Send the counter",
+    body: "Weakness, Aura score, and a reply you can send to Compose without rewriting the brief.",
+  },
+] as const;
 
-export default function Home() {
-  const brands = useQuery(api.brands.listMine);
-  const [feed, setFeed] = useState(MOCK_FEED);
-
-  const totalAura = feed
-    .filter((post) => post.status === "stolen")
-    .reduce((sum, post) => sum + post.projectedAuraGain, 0);
-
-  function stealAura(id: string) {
-    setFeed((prev) =>
-      prev.map((post) =>
-        post.id === id ? { ...post, status: "stolen" } : post,
-      ),
-    );
-  }
-
+export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-black bg-[radial-gradient(circle_at_top,_rgba(217,70,239,0.08),_transparent_60%)] text-zinc-100">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-10">
-        <div className="flex items-center gap-2">
-          <Radar className="text-fuchsia-400" size={22} />
-          <h1 className="text-xl font-bold tracking-tight">AuraEngine</h1>
-        </div>
-        <AuraCounter value={totalAura} />
+    <div className="min-h-dvh">
+      <AsciiBanner />
+
+      <header className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
+        <p className="text-[11px] tracking-[0.12em] text-muted-foreground">
+          Aura Engine
+        </p>
+        <AuthControls variant="nav" />
       </header>
 
-      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 pb-24">
-        <section className="rounded-2xl border border-zinc-800/80 bg-zinc-950/70 p-6">
-          <h2 className="text-sm uppercase tracking-[0.25em] text-fuchsia-400/70">
-            Tus marcas
-          </h2>
-          {brands === undefined ? (
-            <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
-              <Loader2 size={16} className="animate-spin" />
-              Cargando marcas…
-            </div>
-          ) : brands.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-500">
-              Inicia sesión y crea una marca en Convex para abrir Vista 1–3.
-            </p>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {brands.map((brand) => (
-                <li
-                  key={brand._id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-black/50 px-4 py-3"
-                >
-                  <div>
-                    <p className="font-medium text-zinc-100">{brand.name}</p>
-                    <p className="text-xs text-zinc-500">{brand.description}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Link
-                      href={preferencesPath(brand._id)}
-                      className="rounded-full border border-zinc-700 px-3 py-1 text-xs uppercase tracking-widest text-zinc-400 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200"
-                    >
-                      Preferencias
-                    </Link>
-                    <Link
-                      href={analyzePath(brand._id)}
-                      className="rounded-full bg-fuchsia-500/20 px-3 py-1 text-xs uppercase tracking-widest text-fuchsia-200 transition hover:bg-fuchsia-500/30"
-                    >
-                      Analizar
-                    </Link>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+      <main className="px-3 py-8 sm:px-6 sm:py-12">
+        <p className="text-[11px] tracking-[0.16em] text-muted-foreground motion-safe:animate-[reveal-up_220ms_cubic-bezier(0.23,1,0.32,1)_both]">
+          Competitor reply desk
+        </p>
+        <h1 className="mt-3 max-w-[22ch] text-xl leading-snug tracking-tight sm:text-2xl motion-safe:animate-[reveal-up_220ms_cubic-bezier(0.23,1,0.32,1)_40ms_both]">
+          Steal the reply they left on the table.
+        </h1>
+        <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground motion-safe:animate-[reveal-up_220ms_cubic-bezier(0.23,1,0.32,1)_80ms_both]">
+          Paste a competitor post. Aura reads the thread, scores the opening,
+          and drafts the response at your risk level — diplomatic through roast.
+        </p>
 
-        <section className="space-y-4">
-          <p className="text-xs uppercase tracking-[0.25em] text-zinc-600">
-            Demo feed (local mock)
-          </p>
-          {feed.map((post) => (
-            <PostCard key={post.id} post={post} onSteal={stealAura} />
+        <div className="mt-8 motion-safe:animate-[reveal-up_220ms_cubic-bezier(0.23,1,0.32,1)_120ms_both]">
+          <AuthControls variant="hero" />
+        </div>
+
+        <ol className="mt-12 grid gap-0 border border-border sm:grid-cols-3">
+          {STEPS.map((step, index) => (
+            <li
+              key={step.n}
+              className="border-border p-4 motion-safe:animate-[reveal-up_220ms_cubic-bezier(0.23,1,0.32,1)_both] sm:border-r sm:last:border-r-0 max-sm:border-b max-sm:last:border-b-0"
+              style={{ animationDelay: `${160 + index * 50}ms` }}
+            >
+              <span className="text-xs text-muted-foreground">{step.n}</span>
+              <h2 className="mt-2 text-sm tracking-wide">{step.title}</h2>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                {step.body}
+              </p>
+            </li>
           ))}
-        </section>
+        </ol>
       </main>
     </div>
   );

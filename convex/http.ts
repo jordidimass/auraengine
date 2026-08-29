@@ -2,12 +2,9 @@ import { httpRouter } from "convex/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { httpAction } from "./_generated/server";
-import { auth } from "./auth";
 import { oauthCallback } from "./social";
 
 const http = httpRouter();
-
-auth.addHttpRoutes(http);
 
 http.route({
   path: "/oauth/callback",
@@ -175,14 +172,19 @@ function parseIngestPayload(body: unknown):
 const ingestPostHandler = httpAction(async (ctx, request) => {
   try {
     const configuredSecret = process.env.INGEST_SECRET;
-    if (configuredSecret) {
-      const providedSecret = request.headers.get("X-Ingest-Secret");
-      if (providedSecret !== configuredSecret) {
-        return jsonResponse(
-          { success: false, error: "Unauthorized ingest request" },
-          401,
-        );
-      }
+    if (!configuredSecret || configuredSecret.length === 0) {
+      return jsonResponse(
+        { success: false, error: "Ingest endpoint is not configured" },
+        503,
+      );
+    }
+
+    const providedSecret = request.headers.get("X-Ingest-Secret");
+    if (providedSecret !== configuredSecret) {
+      return jsonResponse(
+        { success: false, error: "Unauthorized ingest request" },
+        401,
+      );
     }
 
     let body: unknown;
