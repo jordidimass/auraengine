@@ -347,7 +347,7 @@ publications.status
    marcas distintas son dos registros, y está bien.
 4. **`publications.mode` es el interruptor de degradación.** Si el OAuth no llega a
    tiempo, `draft` deja el flujo funcionando sin tocar esquema ni frontend.
-5. **Nada de borrados duros.** Todo es cambio de estado.
+5. **Nada de borrados duros.** Todo es cambio de estado..
 
 ---
 
