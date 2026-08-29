@@ -336,6 +336,7 @@ export default function ComposePage() {
     brandId === null ||
     stealId === null ||
     composeData === null ||
+    composeData === undefined ||
     !isAuthenticated
   ) {
     return (
