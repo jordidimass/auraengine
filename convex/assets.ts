@@ -112,6 +112,12 @@ export const saveAsset = mutation({
   },
 });
 
+/**
+ * A generation is only trusted as in-flight for this long. Past it the owning
+ * action is assumed dead, so the user is not locked out of retrying.
+ */
+const STALE_GENERATION_MS = 4 * 60 * 1000;
+
 export const prepareGeneration = internalMutation({
   args: {
     stealId: v.id("aura_steals"),
@@ -133,26 +139,13 @@ export const prepareGeneration = internalMutation({
       .first();
 
     if (latest?.status === "generating") {
-      const hasMedia =
-        latest.imageStorageId !== undefined ||
-        latest.audioStorageId !== undefined ||
-        latest.videoStorageId !== undefined;
-      if (hasMedia) {
+      if (Date.now() - latest.createdAt < STALE_GENERATION_MS) {
         throw new ConvexError({
           code: "ASSET_GENERATION_IN_PROGRESS",
           message: "Wait for the current asset generation to finish",
         });
       }
-      await ctx.db.patch(latest._id, { status: "generating" });
-      const copy = steal.editedResponse ?? steal.generatedResponse;
-      const visualPrompt =
-        latest.visualPrompt ||
-        `Cyberpunk social post visual for: ${copy.slice(0, 280)}`;
-      return {
-        assetId: latest._id,
-        visualPrompt,
-        copy,
-      };
+      await ctx.db.patch(latest._id, { status: "failed" });
     }
 
     const copy = steal.editedResponse ?? steal.generatedResponse;
@@ -161,7 +154,10 @@ export const prepareGeneration = internalMutation({
       `Cyberpunk social post visual for: ${copy.slice(0, 280)}`;
 
     if (args.kind === "audio" && latest !== null) {
-      await ctx.db.patch(latest._id, { status: "generating" });
+      await ctx.db.patch(latest._id, {
+        status: "generating",
+        createdAt: Date.now(),
+      });
       return {
         assetId: latest._id,
         visualPrompt,
@@ -234,6 +230,49 @@ function falAuthHeaders(key: string) {
   return {
     Authorization: `Key ${key}`,
     "Content-Type": "application/json",
+  };
+}
+
+interface FalQueueSubmission {
+  request_id?: string;
+  status_url?: string;
+  response_url?: string;
+}
+
+/**
+ * fal returns absolute queue URLs on submit. Prefer them over hand-built paths
+ * because sub-pathed model ids resolve differently, but only after checking the
+ * host so a malformed response can never redirect the API key elsewhere.
+ */
+function falQueueEndpoints(model: string, submitted: FalQueueSubmission) {
+  const trusted = (candidate: string | undefined) => {
+    if (candidate === undefined) {
+      return undefined;
+    }
+    try {
+      const url = new URL(candidate);
+      return url.protocol === "https:" && url.hostname === "queue.fal.run"
+        ? url.toString()
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const statusUrl = trusted(submitted.status_url);
+  const resultUrl = trusted(submitted.response_url);
+  if (statusUrl !== undefined && resultUrl !== undefined) {
+    return { statusUrl, resultUrl };
+  }
+
+  const requestId = submitted.request_id;
+  if (requestId === undefined || !/^[a-zA-Z0-9_-]+$/.test(requestId)) {
+    return undefined;
+  }
+  const base = `https://queue.fal.run/${model}/requests/${requestId}`;
+  return {
+    statusUrl: statusUrl ?? `${base}/status`,
+    resultUrl: resultUrl ?? base,
   };
 }
 
@@ -331,9 +370,15 @@ async function generateFalImage(prompt: string): Promise<string> {
   return url;
 }
 
+const FAL_VIDEO_MODEL_DEFAULT = "lightricks/ltx-2.5/text-to-video/fast";
+const FAL_VIDEO_RESOLUTION = "1080p";
+const FAL_VIDEO_FPS = 24;
+const FAL_VIDEO_POLL_INTERVAL_MS = 1500;
+const FAL_VIDEO_TIMEOUT_MINUTES = 3;
+
 async function generateFalVideo(
   prompt: string,
-  duration: 5 | 10,
+  duration: 6 | 10,
   aspectRatio: "16:9" | "9:16" | "1:1",
 ): Promise<string> {
   const key = process.env.FAL_KEY;
@@ -344,9 +389,7 @@ async function generateFalVideo(
     });
   }
 
-  const model =
-    process.env.FAL_VIDEO_MODEL ??
-    "fal-ai/kling-video/v1/standard/text-to-video";
+  const model = process.env.FAL_VIDEO_MODEL ?? FAL_VIDEO_MODEL_DEFAULT;
   if (!/^[a-z0-9][a-z0-9._/-]*$/i.test(model)) {
     throw new ConvexError({
       code: "INVALID_FAL_VIDEO_MODEL",
@@ -354,14 +397,21 @@ async function generateFalVideo(
     });
   }
 
-  const motionPrompt = `${prompt.slice(0, 2200)}. Cinematic ${duration}s social clip, subtle camera motion, no on-screen text.`;
+  // LTX renders 16:9 and 9:16 only, so square requests fall back to portrait.
+  const falAspectRatio = aspectRatio === "1:1" ? "9:16" : aspectRatio;
+  const framing = falAspectRatio === "9:16" ? "vertical" : "widescreen";
+
+  const motionPrompt = `${prompt.slice(0, 2200)}. Cinematic ${duration}s ${framing} social clip, subtle camera motion, no on-screen text, ambient sound design that matches the scene.`;
   const submit = await fetch(`https://queue.fal.run/${model}`, {
     method: "POST",
     headers: falAuthHeaders(key),
     body: JSON.stringify({
       prompt: motionPrompt,
-      duration: String(duration),
-      aspect_ratio: aspectRatio,
+      duration,
+      aspect_ratio: falAspectRatio,
+      resolution: FAL_VIDEO_RESOLUTION,
+      fps: FAL_VIDEO_FPS,
+      generate_audio: true,
     }),
   });
   if (!submit.ok) {
@@ -372,8 +422,7 @@ async function generateFalVideo(
     });
   }
 
-  const submitted = (await submit.json()) as {
-    request_id?: string;
+  const submitted = (await submit.json()) as FalQueueSubmission & {
     video?: { url?: string };
     video_url?: string;
   };
@@ -382,21 +431,22 @@ async function generateFalVideo(
     return immediateUrl;
   }
 
-  const requestId = submitted.request_id;
-  if (!requestId || !/^[a-zA-Z0-9_-]+$/.test(requestId)) {
+  const endpoints = falQueueEndpoints(model, submitted);
+  if (endpoints === undefined) {
     throw new ConvexError({
       code: "FAL_VIDEO_FAILED",
       message: "fal.ai returned no video URL or request id",
     });
   }
 
-  const deadline = Date.now() + 8 * 60 * 1000;
+  const deadline = Date.now() + FAL_VIDEO_TIMEOUT_MINUTES * 60 * 1000;
   while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    const statusResponse = await fetch(
-      `https://queue.fal.run/${model}/requests/${requestId}/status`,
-      { headers: { Authorization: `Key ${key}` } },
+    await new Promise((resolve) =>
+      setTimeout(resolve, FAL_VIDEO_POLL_INTERVAL_MS),
     );
+    const statusResponse = await fetch(endpoints.statusUrl, {
+      headers: { Authorization: `Key ${key}` },
+    });
     if (!statusResponse.ok) {
       const detail = await statusResponse.text();
       throw new ConvexError({
@@ -420,10 +470,9 @@ async function generateFalVideo(
       continue;
     }
 
-    const resultResponse = await fetch(
-      `https://queue.fal.run/${model}/requests/${requestId}`,
-      { headers: { Authorization: `Key ${key}` } },
-    );
+    const resultResponse = await fetch(endpoints.resultUrl, {
+      headers: { Authorization: `Key ${key}` },
+    });
     if (!resultResponse.ok) {
       const detail = await resultResponse.text();
       throw new ConvexError({
@@ -443,7 +492,7 @@ async function generateFalVideo(
 
   throw new ConvexError({
     code: "FAL_VIDEO_FAILED",
-    message: "fal.ai video generation timed out after 8 minutes",
+    message: `fal.ai video generation timed out after ${FAL_VIDEO_TIMEOUT_MINUTES} minutes`,
   });
 }
 
@@ -554,7 +603,7 @@ export const generateVoice = action({
 export const generateVideo = action({
   args: {
     stealId: v.id("aura_steals"),
-    duration: v.optional(v.union(v.literal(5), v.literal(10))),
+    duration: v.optional(v.union(v.literal(6), v.literal(10))),
     aspectRatio: v.optional(videoAspectRatioValidator),
   },
   handler: async (ctx, args): Promise<Id<"publication_assets">> => {
@@ -564,8 +613,8 @@ export const generateVideo = action({
       userId,
     });
 
-    const duration = args.duration ?? 5;
-    const aspectRatio = args.aspectRatio ?? "1:1";
+    const duration = args.duration ?? 6;
+    const aspectRatio = args.aspectRatio ?? "9:16";
     const prepared = await ctx.runMutation(internal.assets.prepareGeneration, {
       stealId: args.stealId,
       kind: "video",
