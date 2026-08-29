@@ -5,8 +5,7 @@ import { Loader2, Radar, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "../../../../../convex/_generated/api";
-import type { Id } from "../../../../../convex/_generated/dataModel";
-import { analyzePath } from "@/lib/routes";
+import { analyzePath, isBrandDocumentId } from "@/lib/routes";
 
 function platformLabel(platform: "x" | "linkedin") {
   return platform === "x" ? "X (Twitter)" : "LinkedIn";
@@ -14,10 +13,28 @@ function platformLabel(platform: "x" | "linkedin") {
 
 export default function PreferencesPage() {
   const params = useParams<{ brandId: string }>();
-  const brandId = params.brandId as Id<"brands">;
+  const rawBrandId = params.brandId;
+  const brandId = isBrandDocumentId(rawBrandId) ? rawBrandId : null;
 
-  const brand = useQuery(api.brands.getById, { brandId });
-  const preferences = useQuery(api.preferences.getByBrand, { brandId });
+  const brand = useQuery(
+    api.brands.getById,
+    brandId ? { brandId } : "skip",
+  );
+  const preferences = useQuery(
+    api.preferences.getByBrand,
+    brandId ? { brandId } : "skip",
+  );
+
+  if (!brandId) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black px-6 text-center text-zinc-300">
+        <p>Marca no encontrada o sin acceso.</p>
+        <Link href="/" className="text-fuchsia-300 hover:underline">
+          Volver al inicio
+        </Link>
+      </div>
+    );
+  }
 
   if (brand === undefined || preferences === undefined) {
     return (

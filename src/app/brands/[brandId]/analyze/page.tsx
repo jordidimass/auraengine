@@ -1,7 +1,7 @@
 "use client";
 
 import { RiskSlider } from "@/components/RiskSlider";
-import { composePath, preferencesPath } from "@/lib/routes";
+import { analyzePath, composePath, isBrandDocumentId, preferencesPath } from "@/lib/routes";
 import { useAction, useQuery } from "convex/react";
 import { AlertCircle, ArrowRight, Loader2, Radar, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -22,9 +22,13 @@ function getErrorMessage(error: unknown): string {
 export default function AnalyzePage() {
   const params = useParams<{ brandId: string }>();
   const router = useRouter();
-  const brandId = params.brandId as Id<"brands">;
+  const rawBrandId = params.brandId;
+  const brandId = isBrandDocumentId(rawBrandId) ? rawBrandId : null;
 
-  const brand = useQuery(api.brands.getById, { brandId });
+  const brand = useQuery(
+    api.brands.getById,
+    brandId ? { brandId } : "skip",
+  );
   const analyzeUrl = useAction(api.analysis.analyzeUrl);
 
   const [url, setUrl] = useState("");
@@ -59,6 +63,18 @@ export default function AnalyzePage() {
     isSubmitting || postStatus === "scraping" || postStatus === "analyzing";
   const isReady = postStatus === "ready" && analysis?.steal !== null;
   const isFailed = postStatus === "failed";
+
+  if (!brandId) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black px-6 text-center text-zinc-300">
+        <AlertCircle className="text-red-300" size={28} />
+        <p>Marca no encontrada o sin acceso.</p>
+        <Link href="/" className="text-fuchsia-300 hover:underline">
+          Volver al inicio
+        </Link>
+      </div>
+    );
+  }
 
   async function handleAnalyze() {
     const trimmedUrl = url.trim();

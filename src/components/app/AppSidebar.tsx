@@ -25,13 +25,17 @@ import {
   SidebarMenuItem,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { dashboardPath, DEMO_BRAND_ID, preferencesPath } from "@/lib/routes";
+import { dashboardPath, DASHBOARD_PATH, isBrandDocumentId, preferencesPath } from "@/lib/routes";
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const brandId = pathname.split("/")[2] || DEMO_BRAND_ID;
-  const analyzeHref = dashboardPath(brandId);
-  const preferencesHref = preferencesPath(brandId);
+  const brandId = pathname.split("/")[2];
+  const analyzeHref = isBrandDocumentId(brandId)
+    ? dashboardPath(brandId)
+    : DASHBOARD_PATH;
+  const preferencesHref = isBrandDocumentId(brandId)
+    ? preferencesPath(brandId)
+    : DASHBOARD_PATH;
 
   return (
     <Sidebar>

@@ -26,3 +26,14 @@ export function composePath(
 // "/brands/demo/analyze" isn't a real Convex id, so post-auth redirects go
 // home instead — the homepage lists the signed-in user's real brands.
 export const DASHBOARD_PATH = "/";
+
+export function isBrandDocumentId(
+  value: string | undefined,
+): value is Id<"brands"> {
+  return (
+    typeof value === "string" &&
+    value !== DEMO_BRAND_ID &&
+    /^[a-z0-9]+$/.test(value) &&
+    value.length >= 16
+  );
+}
