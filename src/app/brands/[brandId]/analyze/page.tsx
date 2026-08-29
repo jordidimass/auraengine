@@ -5,7 +5,7 @@ import { useAction, useQuery } from "convex/react";
 import { AlertCircle, ArrowRight, Loader2, Radar, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
@@ -29,29 +29,29 @@ export default function AnalyzePage() {
   const [url, setUrl] = useState("");
   const [userContext, setUserContext] = useState("");
   const [targetPlatform, setTargetPlatform] = useState<Platform>("x");
-  const [riskLevel, setRiskLevel] = useState(50);
+  const [riskOverride, setRiskOverride] = useState<number | null>(null);
   const [activePostId, setActivePostId] = useState<Id<"competitor_posts"> | null>(
     null,
   );
   const [requestError, setRequestError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const defaultRiskLevel = useMemo(() => {
+    if (brand === undefined || brand === null) {
+      return 50;
+    }
+    return (
+      brand.preferences.find((item) => item.platform === targetPlatform)
+        ?.defaultRiskLevel ?? 50
+    );
+  }, [brand, targetPlatform]);
+
+  const riskLevel = riskOverride ?? defaultRiskLevel;
+
   const analysis = useQuery(
     api.analysis.getPost,
     activePostId ? { postId: activePostId } : "skip",
   );
-
-  useEffect(() => {
-    if (brand === undefined || brand === null || activePostId || isSubmitting) {
-      return;
-    }
-    const preference = brand.preferences.find(
-      (item) => item.platform === targetPlatform,
-    );
-    if (preference) {
-      setRiskLevel(preference.defaultRiskLevel);
-    }
-  }, [activePostId, brand, isSubmitting, targetPlatform]);
 
   const postStatus = analysis?.post.status;
   const isProcessing =
@@ -138,7 +138,10 @@ export default function AnalyzePage() {
                 key={platform}
                 type="button"
                 disabled={isProcessing}
-                onClick={() => setTargetPlatform(platform)}
+                onClick={() => {
+                  setTargetPlatform(platform);
+                  setRiskOverride(null);
+                }}
                 className={`rounded-full px-4 py-2 text-xs uppercase tracking-widest transition disabled:opacity-50 ${
                   targetPlatform === platform
                     ? "bg-fuchsia-500/20 text-fuchsia-200 ring-1 ring-fuchsia-400/40"
@@ -153,7 +156,7 @@ export default function AnalyzePage() {
           <div className="mt-6">
             <RiskSlider
               value={riskLevel}
-              onChange={setRiskLevel}
+              onChange={setRiskOverride}
               disabled={isProcessing}
             />
           </div>

@@ -16,8 +16,13 @@ import type * as brandDefaults from "../brandDefaults.js";
 import type * as brands from "../brands.js";
 import type * as domain from "../domain.js";
 import type * as http from "../http.js";
+import type * as lib_llm from "../lib/llm.js";
+import type * as lib_risk from "../lib/risk.js";
+import type * as lib_scrape from "../lib/scrape.js";
 import type * as preferences from "../preferences.js";
 import type * as publisher from "../publisher.js";
+import type * as social from "../social.js";
+import type * as stealAccess from "../stealAccess.js";
 
 import type {
   ApiFromModules,
@@ -34,8 +39,13 @@ declare const fullApi: ApiFromModules<{
   brands: typeof brands;
   domain: typeof domain;
   http: typeof http;
+  "lib/llm": typeof lib_llm;
+  "lib/risk": typeof lib_risk;
+  "lib/scrape": typeof lib_scrape;
   preferences: typeof preferences;
   publisher: typeof publisher;
+  social: typeof social;
+  stealAccess: typeof stealAccess;
 }>;
 
 /**

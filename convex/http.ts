@@ -3,10 +3,17 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { httpAction } from "./_generated/server";
 import { auth } from "./auth";
+import { oauthCallback } from "./social";
 
 const http = httpRouter();
 
 auth.addHttpRoutes(http);
+
+http.route({
+  path: "/oauth/callback",
+  method: "GET",
+  handler: oauthCallback,
+});
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -203,7 +210,7 @@ const ingestPostHandler = httpAction(async (ctx, request) => {
       userContext,
     } = parsed.payload;
 
-    const postId = await ctx.runMutation(internal.analysis.savePost, {
+    const postId = await ctx.runMutation(internal.analysis.savePostInternal, {
       brandId: brandId as Id<"brands">,
       platform,
       url,

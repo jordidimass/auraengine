@@ -1,292 +1,339 @@
 import { ConvexError, v } from "convex/values";
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import {
   action,
   internalMutation,
-  internalQuery,
+  mutation,
   query,
 } from "./_generated/server";
-import { requireBrandOwner } from "./authz";
-import { assetStatusValidator } from "./domain";
-
-const assetKindValidator = v.union(v.literal("image"), v.literal("audio"));
-
-export const getAssetDocument = internalQuery({
-  args: { stealId: v.id("aura_steals") },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("publication_assets")
-      .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
-      .order("desc")
-      .first();
-  },
-});
-
-export const createAssetRecord = internalMutation({
-  args: {
-    stealId: v.id("aura_steals"),
-    brandId: v.id("brands"),
-    visualPrompt: v.string(),
-    status: assetStatusValidator,
-    generation: v.number(),
-  },
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("publication_assets", {
-      stealId: args.stealId,
-      brandId: args.brandId,
-      visualPrompt: args.visualPrompt,
-      status: args.status,
-      generation: args.generation,
-      createdAt: Date.now(),
-    });
-  },
-});
-
-export const updateAssetRecord = internalMutation({
-  args: {
-    assetId: v.id("publication_assets"),
-    status: assetStatusValidator,
-    imageStorageId: v.optional(v.id("_storage")),
-    audioStorageId: v.optional(v.id("_storage")),
-    generation: v.optional(v.number()),
-    visualPrompt: v.optional(v.string()),
-  },
-  handler: async (ctx, args) => {
-    const { assetId, ...updates } = args;
-    await ctx.db.patch(assetId, updates);
-  },
-});
-
-export const saveAsset = internalMutation({
-  args: {
-    stealId: v.id("aura_steals"),
-    kind: assetKindValidator,
-    storageId: v.id("_storage"),
-  },
-  handler: async (ctx, args) => {
-    const asset = await ctx.db
-      .query("publication_assets")
-      .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
-      .order("desc")
-      .first();
-
-    if (asset === null) {
-      throw new ConvexError({
-        code: "ASSET_NOT_FOUND",
-        message: "Publication asset record not found",
-      });
-    }
-
-    if (args.kind === "image") {
-      await ctx.db.patch(asset._id, {
-        imageStorageId: args.storageId,
-        status: "ready",
-      });
-    } else {
-      await ctx.db.patch(asset._id, {
-        audioStorageId: args.storageId,
-        status: "ready",
-      });
-    }
-
-    return null;
-  },
-});
+import { requireSteal } from "./stealAccess";
 
 export const getAssets = query({
   args: { stealId: v.id("aura_steals") },
   handler: async (ctx, args) => {
+    await requireSteal(ctx, args.stealId);
+    const assets = await ctx.db
+      .query("publication_assets")
+      .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
+      .order("desc")
+      .collect();
+
+    const latest = assets[0] ?? null;
+    const [imageUrl, audioUrl] = latest
+      ? await Promise.all([
+          latest.imageStorageId
+            ? ctx.storage.getUrl(latest.imageStorageId)
+            : Promise.resolve(null),
+          latest.audioStorageId
+            ? ctx.storage.getUrl(latest.audioStorageId)
+            : Promise.resolve(null),
+        ])
+      : [null, null];
+
+    return {
+      asset: latest,
+      assets: await Promise.all(
+        assets.map(async (asset) => ({
+          _id: asset._id,
+          stealId: asset.stealId,
+          brandId: asset.brandId,
+          visualPrompt: asset.visualPrompt,
+          status: asset.status,
+          generation: asset.generation,
+          createdAt: asset.createdAt,
+          imageUrl: asset.imageStorageId
+            ? await ctx.storage.getUrl(asset.imageStorageId)
+            : null,
+          audioUrl: asset.audioStorageId
+            ? await ctx.storage.getUrl(asset.audioStorageId)
+            : null,
+        })),
+      ),
+      imageUrl,
+      audioUrl,
+    };
+  },
+});
+
+export const saveAsset = mutation({
+  args: {
+    stealId: v.id("aura_steals"),
+    kind: v.union(v.literal("image"), v.literal("audio")),
+    storageId: v.id("_storage"),
+  },
+  handler: async (ctx, args) => {
+    const { steal } = await requireSteal(ctx, args.stealId);
+    const latest = await ctx.db
+      .query("publication_assets")
+      .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
+      .order("desc")
+      .first();
+    if (latest === null) {
+      throw new ConvexError({
+        code: "ASSET_NOT_FOUND",
+        message: "Generate an analysis before attaching assets",
+      });
+    }
+    await ctx.db.patch(latest._id, {
+      brandId: steal.brandId,
+      status: "ready",
+      ...(args.kind === "image"
+        ? { imageStorageId: args.storageId }
+        : { audioStorageId: args.storageId }),
+    });
+    return null;
+  },
+});
+
+export const prepareGeneration = internalMutation({
+  args: {
+    stealId: v.id("aura_steals"),
+    kind: v.union(v.literal("image"), v.literal("audio")),
+  },
+  handler: async (ctx, args) => {
     const steal = await ctx.db.get(args.stealId);
     if (steal === null) {
-      return null;
+      throw new ConvexError({
+        code: "STEAL_NOT_FOUND",
+        message: "Steal not found",
+      });
     }
 
-    await requireBrandOwner(ctx, steal.brandId);
-
-    const asset = await ctx.db
+    const latest = await ctx.db
       .query("publication_assets")
       .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
       .order("desc")
       .first();
 
-    if (asset === null) {
+    const copy = steal.editedResponse ?? steal.generatedResponse;
+    const visualPrompt =
+      latest?.visualPrompt ||
+      `Cyberpunk social post visual for: ${copy.slice(0, 280)}`;
+
+    if (args.kind === "audio" && latest !== null) {
+      await ctx.db.patch(latest._id, { status: "generating" });
       return {
-        asset: null,
-        imageUrl: null,
-        audioUrl: null,
+        assetId: latest._id,
+        visualPrompt,
+        copy,
       };
     }
 
-    const [imageUrl, audioUrl] = await Promise.all([
-      asset.imageStorageId
-        ? ctx.storage.getUrl(asset.imageStorageId)
-        : Promise.resolve(null),
-      asset.audioStorageId
-        ? ctx.storage.getUrl(asset.audioStorageId)
-        : Promise.resolve(null),
-    ]);
+    const nextGeneration =
+      args.kind === "image"
+        ? (latest?.generation ?? 0) + 1
+        : (latest?.generation ?? 1);
 
-    return { asset, imageUrl, audioUrl };
-  },
-});
-
-export const getGenerationContext = internalQuery({
-  args: { stealId: v.id("aura_steals") },
-  handler: async (ctx, args) => {
-    const steal = await ctx.db.get(args.stealId);
-    if (steal === null) {
-      return null;
-    }
-
-    const [post, brand] = await Promise.all([
-      ctx.db.get(steal.competitorPostId),
-      ctx.db.get(steal.brandId),
-    ]);
-
-    if (post === null || brand === null) {
-      return null;
-    }
-
-    const copy = steal.editedResponse ?? steal.generatedResponse;
-    const visualPrompt = `Cyberpunk social card for ${brand.name}, ${brand.industry ?? "tech"} brand. Counter-narrative on ${steal.targetPlatform}: ${copy.slice(0, 180)}. Fuchsia and black palette, high contrast, neon glow.`;
-
-    return {
-      brand,
-      steal,
-      post,
-      copy,
+    const assetId = await ctx.db.insert("publication_assets", {
+      stealId: args.stealId,
+      brandId: steal.brandId,
       visualPrompt,
-    };
+      status: "generating",
+      generation: Math.max(nextGeneration, 1),
+      imageStorageId: latest?.imageStorageId,
+      audioStorageId: latest?.audioStorageId,
+      createdAt: Date.now(),
+    });
+    return { assetId, visualPrompt, copy };
   },
 });
+
+export const finishGeneration = internalMutation({
+  args: {
+    assetId: v.id("publication_assets"),
+    kind: v.union(v.literal("image"), v.literal("audio")),
+    storageId: v.optional(v.id("_storage")),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    if (asset === null) {
+      throw new ConvexError({
+        code: "ASSET_NOT_FOUND",
+        message: "Asset not found",
+      });
+    }
+    if (args.error || !args.storageId) {
+      await ctx.db.patch(args.assetId, { status: "failed" });
+      return;
+    }
+    await ctx.db.patch(args.assetId, {
+      status: "ready",
+      ...(args.kind === "image"
+        ? { imageStorageId: args.storageId }
+        : { audioStorageId: args.storageId }),
+    });
+  },
+});
+
+async function storeFromUrl(
+  ctx: { storage: { store: (blob: Blob) => Promise<Id<"_storage">> } },
+  url: string,
+) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new ConvexError({
+      code: "MEDIA_DOWNLOAD_FAILED",
+      message: `Could not download generated media (${response.status})`,
+    });
+  }
+  const blob = await response.blob();
+  return await ctx.storage.store(blob);
+}
+
+async function generateFalImage(prompt: string): Promise<string> {
+  const key = process.env.FAL_KEY;
+  if (!key) {
+    throw new ConvexError({
+      code: "MISSING_FAL_KEY",
+      message: "FAL_KEY is not set in the Convex dashboard",
+    });
+  }
+
+  const response = await fetch("https://fal.run/fal-ai/flux/schnell", {
+    method: "POST",
+    headers: {
+      Authorization: `Key ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prompt, image_size: "square_hd" }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ConvexError({
+      code: "FAL_FAILED",
+      message: `fal.ai failed (${response.status}): ${detail.slice(0, 300)}`,
+    });
+  }
+  const body = (await response.json()) as {
+    images?: Array<{ url?: string }>;
+  };
+  const url = body.images?.[0]?.url;
+  if (!url) {
+    throw new ConvexError({
+      code: "FAL_FAILED",
+      message: "fal.ai returned no image URL",
+    });
+  }
+  return url;
+}
+
+async function generateElevenLabsAudio(text: string): Promise<ArrayBuffer> {
+  const key = process.env.ELEVENLABS_API_KEY;
+  if (!key) {
+    throw new ConvexError({
+      code: "MISSING_ELEVENLABS_KEY",
+      message: "ELEVENLABS_API_KEY is not set in the Convex dashboard",
+    });
+  }
+  const voiceId = process.env.ELEVENLABS_VOICE_ID ?? "JBFqnCBsd6RMkjVDRZzb";
+  const response = await fetch(
+    `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+    {
+      method: "POST",
+      headers: {
+        "xi-api-key": key,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text: text.slice(0, 2500),
+        model_id: "eleven_multilingual_v2",
+      }),
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ConvexError({
+      code: "ELEVENLABS_FAILED",
+      message: `ElevenLabs failed (${response.status}): ${detail.slice(0, 300)}`,
+    });
+  }
+  return await response.arrayBuffer();
+}
 
 export const generateImage = action({
   args: { stealId: v.id("aura_steals") },
-  handler: async (ctx, args): Promise<{ assetId: Id<"publication_assets">; generation: number }> => {
-    const steal = await ctx.runQuery(internal.analysis.assertStealAccess, {
-      stealId: args.stealId,
-    });
-
-    const post = await ctx.runQuery(internal.analysis.getPostDocument, {
-      postId: steal.competitorPostId,
-    });
-    const brand = await ctx.runQuery(internal.analysis.getBrandDocument, {
-      brandId: steal.brandId,
-    });
-
-    if (post === null || brand === null) {
+  handler: async (ctx, args): Promise<Id<"publication_assets">> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
       throw new ConvexError({
-        code: "GENERATION_CONTEXT_NOT_FOUND",
-        message: "Unable to load generation context",
+        code: "UNAUTHENTICATED",
+        message: "You must be signed in",
       });
     }
+    await ctx.runQuery(internal.analysis.verifyStealOwner, {
+      stealId: args.stealId,
+      userId,
+    });
 
-    const copy = steal.editedResponse ?? steal.generatedResponse;
-    const visualPrompt = `Cyberpunk social card for ${brand.name}, ${brand.industry ?? "tech"} brand. Counter-narrative on ${steal.targetPlatform}: ${copy.slice(0, 180)}. Fuchsia and black palette, high contrast, neon glow.`;
-    const context = { brand, steal, visualPrompt };
-
-    const existingAsset: Doc<"publication_assets"> | null = await ctx.runQuery(
-      internal.assets.getAssetDocument,
-      {
-        stealId: args.stealId,
-      },
-    );
-
-    const nextGeneration: number = (existingAsset?.generation ?? 0) + 1;
-    let assetId: Id<"publication_assets">;
-
-    if (existingAsset === null) {
-      assetId = await ctx.runMutation(internal.assets.createAssetRecord, {
-        stealId: args.stealId,
-        brandId: steal.brandId,
-        visualPrompt: context.visualPrompt,
-        status: "generating",
-        generation: nextGeneration,
-      });
-    } else {
-      assetId = existingAsset._id;
-      await ctx.runMutation(internal.assets.updateAssetRecord, {
-        assetId,
-        status: "generating",
-        generation: nextGeneration,
-        visualPrompt: context.visualPrompt,
-      });
-    }
-
+    const prepared = await ctx.runMutation(internal.assets.prepareGeneration, {
+      stealId: args.stealId,
+      kind: "image",
+    });
     try {
-      const imageBlob = await generatePlaceholderImage(context);
-      const storageId = await ctx.storage.store(imageBlob);
-
-      await ctx.runMutation(internal.assets.updateAssetRecord, {
-        assetId,
-        status: "ready",
-        imageStorageId: storageId,
-        generation: nextGeneration,
+      const imageUrl = await generateFalImage(prepared.visualPrompt);
+      const storageId = await storeFromUrl(ctx, imageUrl);
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: prepared.assetId,
+        kind: "image",
+        storageId,
       });
-
-      return { assetId, generation: nextGeneration };
+      return prepared.assetId;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Image generation failed";
-      await ctx.runMutation(internal.assets.updateAssetRecord, {
-        assetId,
-        status: "failed",
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: prepared.assetId,
+        kind: "image",
+        error: message,
       });
-      throw new ConvexError({
-        code: "IMAGE_GENERATION_FAILED",
-        message,
-      });
+      throw error;
     }
   },
 });
 
 export const generateVoice = action({
   args: { stealId: v.id("aura_steals") },
-  handler: async (ctx, args) => {
-    await ctx.runQuery(internal.analysis.assertStealAccess, {
+  handler: async (ctx, args): Promise<Id<"publication_assets">> => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
+      throw new ConvexError({
+        code: "UNAUTHENTICATED",
+        message: "You must be signed in",
+      });
+    }
+    await ctx.runQuery(internal.analysis.verifyStealOwner, {
       stealId: args.stealId,
+      userId,
     });
 
-    // TODO: wire ElevenLabs once ELEVENLABS_API_KEY is set in the Convex dashboard.
-    throw new ConvexError({
-      code: "NOT_IMPLEMENTED",
-      message: "ElevenLabs voice generation is not wired yet",
+    const prepared = await ctx.runMutation(internal.assets.prepareGeneration, {
+      stealId: args.stealId,
+      kind: "audio",
     });
+    try {
+      const audio = await generateElevenLabsAudio(prepared.copy);
+      const storageId = await ctx.storage.store(
+        new Blob([audio], { type: "audio/mpeg" }),
+      );
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: prepared.assetId,
+        kind: "audio",
+        storageId,
+      });
+      return prepared.assetId;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Voice generation failed";
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: prepared.assetId,
+        kind: "audio",
+        error: message,
+      });
+      throw error;
+    }
   },
 });
-
-async function generatePlaceholderImage(context: {
-  brand: Doc<"brands">;
-  steal: Doc<"aura_steals">;
-  visualPrompt: string;
-}) {
-  // TODO: replace with fal.ai once FAL_KEY is set in the Convex dashboard.
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#09090b"/>
-      <stop offset="100%" style="stop-color:#3b0764"/>
-    </linearGradient>
-  </defs>
-  <rect width="1200" height="630" fill="url(#bg)"/>
-  <rect x="40" y="40" width="1120" height="550" rx="24" fill="none" stroke="#e879f9" stroke-width="2" opacity="0.6"/>
-  <text x="80" y="130" fill="#f0abfc" font-family="Arial, sans-serif" font-size="42" font-weight="700">${escapeXml(context.brand.name)}</text>
-  <text x="80" y="190" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="24">AuraEngine · Vista 3 Preview</text>
-  <text x="80" y="280" fill="#fafafa" font-family="Arial, sans-serif" font-size="28">${escapeXml(context.steal.targetPlatform.toUpperCase())} · Score ${context.steal.auraOpportunityScore}</text>
-  <text x="80" y="340" fill="#d4d4d8" font-family="Arial, sans-serif" font-size="22">Generación ${context.steal.riskLevel}/100 riesgo</text>
-  <text x="80" y="420" fill="#e879f9" font-family="Arial, sans-serif" font-size="20">fal.ai placeholder — ${escapeXml(context.visualPrompt.slice(0, 80))}…</text>
-</svg>`;
-
-  return new Blob([svg], { type: "image/svg+xml" });
-}
-
-function escapeXml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
-}
