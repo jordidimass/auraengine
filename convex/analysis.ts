@@ -382,7 +382,7 @@ export const analyzePostPipeline = internalAction({
     targetPlatform: platformValidator,
     userContext: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"aura_steals">> => {
     const riskLevel = requireIntegerRisk(args.riskLevel);
 
     try {
@@ -433,7 +433,7 @@ export const analyzePostPipeline = internalAction({
         useHashtags: packed.preferences.useHashtags,
       });
 
-      await ctx.runMutation(internal.analysis.saveStealInternal, {
+      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
         postId: args.postId,
         riskLevel,
         userContext: args.userContext,
@@ -443,6 +443,7 @@ export const analyzePostPipeline = internalAction({
         targetPlatform: args.targetPlatform,
         visualPrompt: analysis.visualPrompt,
       });
+      return stealId;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Analysis pipeline failed";
@@ -496,47 +497,11 @@ export const analyzeUrl = action({
         platform: scraped.platform,
       });
 
-      const packed = await ctx.runQuery(internal.analysis.loadAnalysisContext, {
-        brandId: args.brandId,
-        postId,
-        targetPlatform: args.targetPlatform,
-      });
-      if (packed.post === null || packed.preferences === null) {
-        throw new ConvexError({
-          code: "POST_NOT_FOUND",
-          message: "Post disappeared during analysis",
-        });
-      }
-
-      const analysis = await runLlmAnalysis({
-        brandName: packed.brand.name,
-        industry: packed.brand.industry,
-        description: packed.brand.description,
-        tone: packed.preferences.tone,
-        bannedPhrases: packed.preferences.bannedPhrases,
-        bannedTopics: packed.preferences.bannedTopics,
-        customInstructions: packed.preferences.customInstructions,
-        riskLevel,
-        platform: args.targetPlatform,
-        originalContent: packed.post.originalContent,
-        authorHandle: packed.post.authorHandle,
-        metrics: packed.post.metrics,
-        topReplies: packed.post.topReplies,
-        userContext: args.userContext,
-        maxLength: packed.preferences.maxLength,
-        useEmojis: packed.preferences.useEmojis,
-        useHashtags: packed.preferences.useHashtags,
-      });
-
-      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
+      const stealId = await ctx.runAction(internal.analysis.analyzePostPipeline, {
         postId,
         riskLevel,
-        userContext: args.userContext,
-        score: analysis.auraScore,
-        weakness: analysis.weakness,
-        response: analysis.response,
         targetPlatform: args.targetPlatform,
-        visualPrompt: analysis.visualPrompt,
+        userContext: args.userContext,
       });
 
       return { postId, stealId };
