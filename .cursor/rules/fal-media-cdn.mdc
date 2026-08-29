@@ -1,0 +1,26 @@
+---
+description: fal.ai hosts post/reel media on its CDN; Convex stores URLs only
+alwaysApply: true
+---
+
+# fal.ai CDN media (mandatory)
+
+Vista 3 output formats are `post` (image) and `reel` (video). fal.ai generates both. Files live on the fal CDN (`https://v3b.fal.media/...`). Convex stores **URL strings + status**, never the blob.
+
+- fal calls belong in Convex **actions** only.
+- Preview: `<img src={imageUrl} />` / `<video src={videoUrl} />`.
+- Live publish: download from the fal URL at publish time. Do not copy into `_storage` first.
+- Do not add `videoStorageId` or `imageStorageId` for fal output. ElevenLabs audio may still use `_storage`.
+- Platforms stay `"x" | "linkedin"` unless the schema union is extended. `reel` is a format, not Instagram/TikTok.
+
+```ts
+// BAD — never persist fal output in Convex storage
+imageStorageId: v.optional(v.id("_storage")),
+videoStorageId: v.optional(v.id("_storage")),
+await ctx.storage.store(blob);
+
+// GOOD
+format: v.union(v.literal("post"), v.literal("reel")),
+imageUrl: v.optional(v.string()),
+videoUrl: v.optional(v.string()),
+```

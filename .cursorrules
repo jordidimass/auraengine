@@ -3,10 +3,13 @@ You are a senior full-stack engineer building "AuraEngine — Competitor Aura St
 Tech Stack:
 - Frontend: Next.js (App Router), Tailwind CSS, Lucide Icons, Framer Motion
 - Backend & Realtime State: Convex (Mutations, Queries, Actions, HTTP Actions)
-- External APIs: OpenAI (GPT-4o), ElevenLabs (TTS), Apify/Tavily, n8n
+- External APIs: OpenAI (GPT-4o), ElevenLabs (TTS), Apify/Tavily, fal.ai
+- Orchestration: Convex (Actions, HTTP Actions, Scheduled Functions) — not n8n
 
 Rules:
 1. Adhere strictly to official Convex patterns: define schemas in convex/schema.ts, keep database logic in mutations/queries, keep external API calls in actions.
 2. Build responsive, cyberpunk/dark-mode aesthetic UI components with Tailwind CSS.
 3. Every component must be production-grade, typed with TypeScript interfaces, with no mock placeholders unless explicitly marked TODO.
 4. Keep components modular and isolated to prevent merge conflicts across the team.
+5. Generated media (post image, reel video) lives on the fal CDN. Convex stores URL strings only — never `ctx.storage.store` for fal output, never `imageStorageId` / `videoStorageId`. Preview from the URL; live publish downloads from fal at publish time.
+6. Output formats are `post` and `reel`. Destination platforms stay `"x" | "linkedin"` unless the schema union is extended. Do not add Instagram/TikTok.

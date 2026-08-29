@@ -26,9 +26,11 @@ Josue mergea `schema.ts` primero — bloquea a todos los demás.
 |---|---|
 | Multi-marca | Un usuario maneja varias empresas. Todo cuelga de `brandId`. |
 | Vistas | Tres. Preferencias, análisis, generación. |
-| Ingesta | Pegar link del competidor. El monitoreo automático queda como stretch. |
+| Ingesta | Pegar link del competidor. El scrape corre en una Convex action (Apify). El monitoreo automático queda como stretch (Convex scheduled functions, no n8n). |
+| Orquestación | Convex. Actions, HTTP Actions y Scheduled Functions. n8n queda fuera. |
 | Nivel de riesgo | Barra 0–100 que controla qué tan agresiva sale la respuesta. |
 | Auth | Convex Auth (email/password + Google). |
+| Media | fal.ai genera post (imagen) y reel (video). El archivo vive en el CDN de fal. Convex guarda **solo la URL** (`imageUrl` / `videoUrl`). Prohibido `_storage` para output de fal. |
 
 **Cambio respecto a la versión anterior:** las preferencias ya no viven en el usuario
 sino en la marca. Un usuario con tres clientes tiene tres sets de tono independientes.
@@ -71,10 +73,11 @@ El nivel de riesgo mapea así:
 
 Toma el copy aprobado y produce la pieza terminada.
 
-- fal.ai genera el visual a partir del prompt derivado del análisis
-- Preview de la publicación como se vería en la red destino
+- Toggle **post** (imagen) | **reel** (video)
+- fal.ai genera el media a partir del `visualPrompt` y devuelve una URL de su CDN
+- Preview desde esa URL (`<img>` o `<video>`). No hay copia en Convex `_storage`
 - Edición del copy antes de cerrar
-- Regenerar imagen sin volver a correr el análisis
+- Regenerar imagen o video sin volver a correr el análisis
 
 **Fuera de estas tres:** landing, login y selector de marca. Nada más.
 
@@ -174,9 +177,11 @@ export default defineSchema({
   publication_assets: defineTable({
     stealId:        v.id("aura_steals"),
     brandId:        v.id("brands"),
+    format:         v.union(v.literal("post"), v.literal("reel")),
     visualPrompt:   v.string(),
-    imageStorageId: v.optional(v.id("_storage")),
-    audioStorageId: v.optional(v.id("_storage")),
+    imageUrl:       v.optional(v.string()),  // CDN fal — nunca _storage
+    videoUrl:       v.optional(v.string()),  // CDN fal — nunca _storage
+    audioStorageId: v.optional(v.id("_storage")),  // ElevenLabs only
     status: v.union(
       v.literal("generating"),
       v.literal("ready"),
@@ -193,8 +198,10 @@ export default defineSchema({
     stealId:        v.id("aura_steals"),
     platform,
     mode:           v.union(v.literal("live"), v.literal("draft")),
+    format:         v.union(v.literal("post"), v.literal("reel")),
     finalText:      v.string(),
-    imageStorageId: v.optional(v.id("_storage")),
+    imageUrl:       v.optional(v.string()),
+    videoUrl:       v.optional(v.string()),
     status: v.union(
       v.literal("pending"),
       v.literal("publishing"),
@@ -231,8 +238,9 @@ export default defineSchema({
 ```
 
 **Por qué `publication_assets` es tabla aparte y no columnas en `aura_steals`:**
-regenerar la imagen es una acción frecuente en la vista 3. Separarla deja versionar
-con `generation` sin ensuciar el registro del análisis.
+regenerar imagen o video es frecuente en la vista 3. Separarla deja versionar
+con `generation` sin ensuciar el registro del análisis. El blob nunca entra
+a Convex: solo se persisten las URLs del CDN de fal.
 
 ---
 
@@ -270,17 +278,18 @@ con `generation` sin ensuciar el registro del análisis.
 
 | Tipo | Nombre | Args | Devuelve |
 |---|---|---|---|
-| action | `generateImage` | `{ stealId }` | fal.ai → `_storage`. Incrementa `generation` |
+| action | `generateImage` | `{ stealId }` | fal.ai → `imageUrl` (CDN). Incrementa `generation`. Nunca `_storage` |
+| action | `generateVideo` | `{ stealId }` | fal.ai → `videoUrl` (CDN). Incrementa `generation`. Nunca `_storage` |
 | action | `generateVoice` | `{ stealId }` | ElevenLabs → `_storage` |
-| query | `getAssets` | `{ stealId }` | URLs firmadas — suscripción de la vista 3 |
-| mutation | `saveAsset` | `{ stealId, kind, storageId }` | `null` |
+| query | `getAssets` | `{ stealId }` | URLs de fal (+ audio firmado si hay). Suscripción de la vista 3 |
+| mutation | `saveAsset` | `{ stealId, kind, url }` | `null`. `kind`: `image` \| `video`. Guarda el string de fal |
 
 ### `convex/publisher.ts` — Hugo / Hector
 
 | Tipo | Nombre | Args | Devuelve |
 |---|---|---|---|
 | mutation | `enqueue` | `{ stealId, platform, finalText }` | Crea publicación y escribe en el ledger |
-| action | `execute` | `{ publicationId }` | Publica. Reprograma con backoff si falla |
+| action | `execute` | `{ publicationId }` | Publica. Si es live, descarga el media desde la URL de fal en ese momento. Reprograma con backoff si falla |
 | query | `history` | `{ brandId, limit? }` | Publicaciones de la marca |
 | query | `brandAura` | `{ brandId }` | Suma del ledger — alimenta el contador |
 
@@ -347,7 +356,8 @@ publications.status
    marcas distintas son dos registros, y está bien.
 4. **`publications.mode` es el interruptor de degradación.** Si el OAuth no llega a
    tiempo, `draft` deja el flujo funcionando sin tocar esquema ni frontend.
-5. **Nada de borrados duros.** Todo es cambio de estado..
+5. **Nada de borrados duros.** Todo es cambio de estado.
+6. **Media de fal nunca entra a `_storage`.** Solo `imageUrl` / `videoUrl`. Prohibido `imageStorageId` / `videoStorageId`.
 
 ---
 
@@ -361,10 +371,10 @@ Las dependencias reales entre las cinco personas:
 | 2. Tokens y componentes base | Jordi | Hugo y Hector |
 | 3. `brands.ts` + `preferences.ts` | Josue | Vista 1 |
 | 4. `analyzeUrl` con Apify + LLM | Deyane | Vista 2 — el corazón |
-| 5. `generateImage` con fal.ai | Deyane | Vista 3 |
+| 5. `generateImage` / `generateVideo` con fal.ai (guardar URL, no blob) | Deyane | Vista 3 |
 | 6. Cableado de las tres vistas | Hugo y Hector | La demo |
 | 7. Publicación real | Hugo y Hector | Lo último, y lo más degradable |
 
 **Si a la hora 8 van tarde**, lo que no se recorta: análisis con score real,
-la barra de riesgo cambiando el resultado, y la imagen de fal.ai en pantalla.
-Eso es el producto. Todo lo demás es adorno.
+la barra de riesgo cambiando el resultado, y el media de fal.ai en pantalla
+(post con imagen; reel si da tiempo). Eso es el producto. Todo lo demás es adorno.
