@@ -414,23 +414,21 @@ async function generateOpenAiImage(prompt: string): Promise<string> {
 }
 
 async function generateImageUrl(prompt: string): Promise<string> {
-  // fal.ai is locked on this project (403 TOP_UP). Prefer OpenAI so compose
-  // does not die on every image click.
   try {
-    return await generateOpenAiImage(prompt);
-  } catch (openAiError) {
+    return await generateFalImage(prompt);
+  } catch (falError) {
     console.error(
-      "OpenAI image failed, trying fal.ai",
-      openAiError instanceof Error ? openAiError.message : openAiError,
+      "fal.ai image failed, trying OpenAI",
+      falError instanceof Error ? falError.message : falError,
     );
     try {
-      return await generateFalImage(prompt);
-    } catch (falError) {
-      const openAiMessage = publicErrorMessage(openAiError, "OpenAI failed");
+      return await generateOpenAiImage(prompt);
+    } catch (openAiError) {
       const falMessage = publicErrorMessage(falError, "fal.ai failed");
+      const openAiMessage = publicErrorMessage(openAiError, "OpenAI failed");
       throw new ConvexError({
         code: "IMAGE_GENERATION_FAILED",
-        message: `${openAiMessage} | ${falMessage}`.slice(0, 400),
+        message: `${falMessage} | ${openAiMessage}`.slice(0, 400),
       });
     }
   }
