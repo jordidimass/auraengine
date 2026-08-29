@@ -18,9 +18,10 @@ import {
   competitorPostStatusValidator,
   normalizeOptionalText,
   platformValidator,
+  type Platform,
 } from "./domain";
 import { runLlmAnalysis } from "./lib/llm";
-import { assertCompetitorPostUrl, scrapeCompetitorPost } from "./lib/scrape";
+import { assertCompetitorPostUrl, normalizeCompetitorUrl, scrapeCompetitorPost } from "./lib/scrape";
 import { detectPlatformFromUrl, requireIntegerRisk } from "./lib/risk";
 import { requireSteal } from "./stealAccess";
 
@@ -29,6 +30,28 @@ const metricsValidator = v.object({
   reposts: v.number(),
   replies: v.number(),
 });
+
+function publicErrorMessage(error: unknown): string {
+  if (error instanceof ConvexError) {
+    const data: unknown = error.data;
+    if (typeof data === "string" && data.length > 0) {
+      return data;
+    }
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message === "string" &&
+      data.message.length > 0
+    ) {
+      return data.message;
+    }
+  }
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return "Analysis pipeline failed";
+}
 
 export const verifyBrandOwner = internalQuery({
   args: {
@@ -375,6 +398,70 @@ export const getStealInternal = internalQuery({
   },
 });
 
+export const scrapePostFromUrl = internalAction({
+  args: {
+    brandId: v.id("brands"),
+    url: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"competitor_posts">> => {
+    const url = normalizeCompetitorUrl(args.url.trim());
+    const platform = detectPlatformFromUrl(url);
+    assertCompetitorPostUrl(url);
+    const postId = await ctx.runMutation(internal.analysis.beginScrape, {
+      brandId: args.brandId,
+      url,
+      platform,
+    });
+
+    try {
+      const scraped = await scrapeCompetitorPost(url);
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId,
+        status: "analyzing",
+        originalContent: scraped.originalContent,
+        authorHandle: scraped.authorHandle,
+        metrics: scraped.metrics,
+        topReplies: scraped.topReplies,
+        platform: scraped.platform,
+      });
+      return postId;
+    } catch (error) {
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId,
+        status: "failed",
+        error: publicErrorMessage(error),
+      });
+      throw error;
+    }
+  },
+});
+
+export const scrapeAndAnalyzeFromUrl = internalAction({
+  args: {
+    brandId: v.id("brands"),
+    url: v.string(),
+    riskLevel: v.number(),
+    targetPlatform: platformValidator,
+    userContext: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ postId: Id<"competitor_posts">; stealId: Id<"aura_steals"> }> => {
+    const postId = await ctx.runAction(internal.analysis.scrapePostFromUrl, {
+      brandId: args.brandId,
+      url: args.url,
+    });
+    const stealId = await ctx.runAction(internal.analysis.analyzePostPipeline, {
+      postId,
+      riskLevel: args.riskLevel,
+      targetPlatform: args.targetPlatform,
+      userContext: args.userContext,
+    });
+    return { postId, stealId };
+  },
+});
+
 export const analyzePostPipeline = internalAction({
   args: {
     postId: v.id("competitor_posts"),
@@ -382,7 +469,7 @@ export const analyzePostPipeline = internalAction({
     targetPlatform: platformValidator,
     userContext: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"aura_steals">> => {
     const riskLevel = requireIntegerRisk(args.riskLevel);
 
     try {
@@ -433,7 +520,7 @@ export const analyzePostPipeline = internalAction({
         useHashtags: packed.preferences.useHashtags,
       });
 
-      await ctx.runMutation(internal.analysis.saveStealInternal, {
+      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
         postId: args.postId,
         riskLevel,
         userContext: args.userContext,
@@ -443,16 +530,53 @@ export const analyzePostPipeline = internalAction({
         targetPlatform: args.targetPlatform,
         visualPrompt: analysis.visualPrompt,
       });
+      return stealId;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Analysis pipeline failed";
       await ctx.runMutation(internal.analysis.markPost, {
         postId: args.postId,
         status: "failed",
-        error: message,
+        error: publicErrorMessage(error),
       });
       throw error;
     }
+  },
+});
+
+export const continueAnalyzeFromPost = internalAction({
+  args: {
+    postId: v.id("competitor_posts"),
+    url: v.string(),
+    riskLevel: v.number(),
+    targetPlatform: platformValidator,
+    userContext: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      const scraped = await scrapeCompetitorPost(args.url);
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId: args.postId,
+        status: "analyzing",
+        originalContent: scraped.originalContent,
+        authorHandle: scraped.authorHandle,
+        metrics: scraped.metrics,
+        topReplies: scraped.topReplies,
+        platform: scraped.platform,
+      });
+      await ctx.runAction(internal.analysis.analyzePostPipeline, {
+        postId: args.postId,
+        riskLevel: args.riskLevel,
+        targetPlatform: args.targetPlatform,
+        userContext: args.userContext,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId: args.postId,
+        status: "failed",
+        error: publicErrorMessage(error),
+      });
+    }
+    return null;
   },
 });
 
@@ -464,92 +588,45 @@ export const analyzeUrl = action({
     userContext: v.optional(v.string()),
     targetPlatform: platformValidator,
   },
+  returns: v.object({
+    postId: v.id("competitor_posts"),
+  }),
   handler: async (
     ctx,
     args,
-  ): Promise<{ postId: Id<"competitor_posts">; stealId: Id<"aura_steals"> }> => {
+  ): Promise<{ postId: Id<"competitor_posts"> }> => {
     const userId = await requireUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyBrandOwner, {
       brandId: args.brandId,
       userId,
     });
 
-    const url = args.url.trim();
-    const riskLevel = requireIntegerRisk(args.riskLevel);
-    const sourcePlatform = detectPlatformFromUrl(url);
+    let url: string;
+    try {
+      url = normalizeCompetitorUrl(args.url.trim());
+    } catch {
+      throw new ConvexError({
+        code: "INVALID_POST_URL",
+        message: "That is not a valid URL.",
+      });
+    }
+    const platform = detectPlatformFromUrl(url);
     assertCompetitorPostUrl(url);
     const postId = await ctx.runMutation(internal.analysis.beginScrape, {
       brandId: args.brandId,
       url,
-      platform: sourcePlatform,
+      platform,
     });
 
-    try {
-      const scraped = await scrapeCompetitorPost(url);
-      await ctx.runMutation(internal.analysis.markPost, {
-        postId,
-        status: "analyzing",
-        originalContent: scraped.originalContent,
-        authorHandle: scraped.authorHandle,
-        metrics: scraped.metrics,
-        topReplies: scraped.topReplies,
-        platform: scraped.platform,
-      });
+    await ctx.scheduler.runAfter(0, internal.analysis.continueAnalyzeFromPost, {
+      postId,
+      url,
+      riskLevel: requireIntegerRisk(args.riskLevel),
+      targetPlatform: args.targetPlatform,
+      userContext: args.userContext,
+    });
 
-      const packed = await ctx.runQuery(internal.analysis.loadAnalysisContext, {
-        brandId: args.brandId,
-        postId,
-        targetPlatform: args.targetPlatform,
-      });
-      if (packed.post === null || packed.preferences === null) {
-        throw new ConvexError({
-          code: "POST_NOT_FOUND",
-          message: "Post disappeared during analysis",
-        });
-      }
-
-      const analysis = await runLlmAnalysis({
-        brandName: packed.brand.name,
-        industry: packed.brand.industry,
-        description: packed.brand.description,
-        tone: packed.preferences.tone,
-        bannedPhrases: packed.preferences.bannedPhrases,
-        bannedTopics: packed.preferences.bannedTopics,
-        customInstructions: packed.preferences.customInstructions,
-        riskLevel,
-        platform: args.targetPlatform,
-        originalContent: packed.post.originalContent,
-        authorHandle: packed.post.authorHandle,
-        metrics: packed.post.metrics,
-        topReplies: packed.post.topReplies,
-        userContext: args.userContext,
-        maxLength: packed.preferences.maxLength,
-        useEmojis: packed.preferences.useEmojis,
-        useHashtags: packed.preferences.useHashtags,
-      });
-
-      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
-        postId,
-        riskLevel,
-        userContext: args.userContext,
-        score: analysis.auraScore,
-        weakness: analysis.weakness,
-        response: analysis.response,
-        targetPlatform: args.targetPlatform,
-        visualPrompt: analysis.visualPrompt,
-      });
-
-      return { postId, stealId };
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Analysis failed";
-      await ctx.runMutation(internal.analysis.markPost, {
-        postId,
-        status: "failed",
-        error: message,
-      });
-      throw error;
-    }
+    return { postId };
   },
 });
 
@@ -620,7 +697,7 @@ async function loadAnalysisContextDocs(
     brandId: Id<"brands">;
     postId?: Id<"competitor_posts">;
     stealId?: Id<"aura_steals">;
-    targetPlatform: "x" | "linkedin";
+    targetPlatform: Platform;
   },
 ) {
   const brand = await ctx.db.get(args.brandId);
@@ -655,7 +732,7 @@ async function upsertCompetitorPost(
   ctx: MutationCtx,
   args: {
     brandId: Id<"brands">;
-    platform: "x" | "linkedin";
+    platform: Platform;
     url: string;
     content: string;
     authorHandle: string;
@@ -701,7 +778,7 @@ async function insertSteal(
   args: {
     postId: Id<"competitor_posts">;
     brandId: Id<"brands">;
-    platform: "x" | "linkedin";
+    platform: Platform;
     riskLevel: number;
     userContext?: string;
     score: number;
@@ -727,7 +804,7 @@ async function insertSteal(
       stealId,
       brandId: args.brandId,
       visualPrompt: prompt,
-      status: "generating",
+      status: "ready",
       generation: 1,
       createdAt: Date.now(),
     });

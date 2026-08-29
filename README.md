@@ -16,6 +16,20 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+### External API configuration
+
+Backend API credentials are Convex environment variables; do not put live keys in
+tracked `.env` files. Configure the integrations with:
+
+```bash
+npx convex env set EXA_API_KEY
+npx convex env set OPENROUTER_API_KEY
+```
+
+`OPENROUTER_MODEL` is optional and defaults to `openai/gpt-4o`. When
+`OPENROUTER_API_KEY` is absent, analysis falls back to `OPENAI_API_KEY` for
+backwards compatibility. See `.env.example` for the complete variable list.
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

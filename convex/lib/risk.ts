@@ -8,6 +8,9 @@ export function detectPlatformFromUrl(url: string): Platform {
   if (host === "linkedin.com" || host.endsWith(".linkedin.com")) {
     return "linkedin";
   }
+  if (host === "instagram.com" || host.endsWith(".instagram.com")) {
+    return "instagram";
+  }
   return "x";
 }
 

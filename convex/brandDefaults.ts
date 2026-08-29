@@ -15,6 +15,20 @@ export function defaultPreferenceFor(platform: Platform) {
     };
   }
 
+  if (platform === "instagram") {
+    return {
+      platform,
+      enabled: true,
+      tone: "casual" as const,
+      defaultRiskLevel: 55,
+      maxLength: 2_200,
+      useEmojis: true,
+      useHashtags: true,
+      bannedPhrases: [],
+      bannedTopics: [],
+    };
+  }
+
   return {
     platform,
     enabled: true,

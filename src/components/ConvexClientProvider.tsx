@@ -3,6 +3,7 @@
 import { useAuth } from "@clerk/nextjs";
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
+import { useCallback } from "react";
 import type { ReactNode } from "react";
 import { ConvexUnavailableBoundary } from "./ConvexUnavailableBoundary";
 
@@ -12,6 +13,37 @@ const convex =
   convexUrl !== undefined && convexUrl.length > 0
     ? new ConvexReactClient(convexUrl)
     : null;
+
+function useAuthForConvex() {
+  const auth = useAuth();
+  const { getToken } = auth;
+
+  const getTokenForConvex = useCallback(
+    async (options?: { template?: "convex"; skipCache?: boolean }) => {
+      if (options?.template !== "convex") {
+        return getToken(options);
+      }
+
+      try {
+        const templated = await getToken({
+          template: "convex",
+          skipCache: options.skipCache,
+        });
+        if (templated) {
+          return templated;
+        }
+      } catch {
+        // Clerk 404s /v1/.../tokens/convex when the "convex" JWT template
+        // is missing. Fall through to the session token (Convex integration).
+      }
+
+      return getToken({ skipCache: options.skipCache });
+    },
+    [getToken],
+  );
+
+  return { ...auth, getToken: getTokenForConvex };
+}
 
 export function ConvexClientProvider({ children }: { children: ReactNode }) {
   if (convex === null) {
@@ -28,7 +60,7 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
 
   return (
     <ConvexUnavailableBoundary>
-      <ConvexProviderWithClerk client={convex} useAuth={useAuth}>
+      <ConvexProviderWithClerk client={convex} useAuth={useAuthForConvex}>
         {children}
       </ConvexProviderWithClerk>
     </ConvexUnavailableBoundary>
