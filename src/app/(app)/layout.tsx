@@ -9,7 +9,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border/60 bg-background/80 px-3 backdrop-blur-md md:hidden">
+        <header className="sticky top-0 z-20 flex h-12 items-center gap-2 border-b border-border/60 bg-background/80 px-3 backdrop-blur-md">
           <SidebarTrigger />
           <span className="text-sm font-medium">Aura Engine</span>
         </header>

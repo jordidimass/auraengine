@@ -1,11 +1,15 @@
 "use client";
 
 import { SignInButton, SignUpButton, UserButton, useAuth } from "@clerk/nextjs";
+import { useQuery } from "convex/react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { api } from "@/lib/convex";
+import { readLastBrandId } from "@/lib/lastBrand";
+import { analyzePath, DASHBOARD_PATH } from "@/lib/routes";
 import { cn } from "@/lib/utils";
-import { DASHBOARD_PATH } from "@/lib/routes";
 
 export function AuthControls({
   variant = "nav",
@@ -14,6 +18,19 @@ export function AuthControls({
 }) {
   const { isLoaded, isSignedIn } = useAuth();
   const hero = variant === "hero";
+  const brands = useQuery(api.brands.listMine, isSignedIn ? {} : "skip");
+  const [lastBrandId, setLastBrandId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLastBrandId(readLastBrandId());
+  }, []);
+
+  const remembered = brands?.find((brand) => brand._id === lastBrandId);
+  const dashboardHref = remembered
+    ? analyzePath(remembered._id)
+    : brands?.[0]
+      ? analyzePath(brands[0]._id)
+      : DASHBOARD_PATH;
 
   if (!isLoaded) {
     return (
@@ -75,7 +92,7 @@ export function AuthControls({
     >
       {variant !== "sidebar" ? (
         <Button asChild size={hero ? "lg" : "default"} className={hero ? "h-11 w-full sm:w-auto" : undefined}>
-          <Link href={DASHBOARD_PATH}>Open dashboard</Link>
+          <Link href={dashboardHref}>Open dashboard</Link>
         </Button>
       ) : null}
       <UserButton />

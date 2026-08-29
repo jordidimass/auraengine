@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import {
   assetStatusValidator,
   competitorPostStatusValidator,
+  designTokensValidator,
   platformValidator,
   publicationModeValidator,
   publicationStatusValidator,
@@ -19,6 +20,7 @@ export default defineSchema({
     industry: v.optional(v.string()),
     description: v.string(),
     logoUrl: v.optional(v.string()),
+    designTokens: v.optional(designTokensValidator),
     archived: v.boolean(),
     createdAt: v.number(),
   })

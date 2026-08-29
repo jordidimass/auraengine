@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "./_generated/api";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import {
   action,
   internalAction,
@@ -20,7 +20,7 @@ import {
   platformValidator,
   type Platform,
 } from "./domain";
-import { runLlmAnalysis } from "./lib/llm";
+import { runLlmAnalysis, type AnalysisInput } from "./lib/llm";
 import { assertCompetitorPostUrl, normalizeCompetitorUrl, scrapeCompetitorPost } from "./lib/scrape";
 import { detectPlatformFromUrl, requireIntegerRisk } from "./lib/risk";
 import { requireSteal } from "./stealAccess";
@@ -133,25 +133,87 @@ export const getPost = query({
 });
 
 export const getStealById = query({
-  args: { stealId: v.id("aura_steals") },
+  args: { stealId: v.string() },
   handler: async (ctx, args) => {
-    const steal = await ctx.db.get(args.stealId);
-    if (steal === null) {
+    const stealId = ctx.db.normalizeId("aura_steals", args.stealId);
+    if (stealId === null) {
       return null;
     }
 
-    await requireBrandOwner(ctx, steal.brandId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return null;
+    }
+
+    const steal = await ctx.db.get(stealId);
+    if (steal === null) {
+      return null;
+    }
 
     const [post, brand] = await Promise.all([
       ctx.db.get(steal.competitorPostId),
       ctx.db.get(steal.brandId),
     ]);
 
-    if (post === null || brand === null) {
+    if (
+      post === null ||
+      brand === null ||
+      brand.userId !== identity.subject ||
+      brand.archived
+    ) {
       return null;
     }
 
     return { steal, post, brand };
+  },
+});
+
+export const listByBrand = query({
+  args: {
+    brandId: v.id("brands"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    await requireBrandOwner(ctx, args.brandId);
+    const limit = args.limit ?? 50;
+    const steals = await ctx.db
+      .query("aura_steals")
+      .withIndex("by_brand", (q) => q.eq("brandId", args.brandId))
+      .order("desc")
+      .take(limit);
+
+    const publications = await ctx.db
+      .query("publications")
+      .withIndex("by_brand", (q) => q.eq("brandId", args.brandId))
+      .collect();
+
+    const latestBySteal = new Map<Id<"aura_steals">, Doc<"publications">>();
+    for (const publication of publications) {
+      const current = latestBySteal.get(publication.stealId);
+      if (
+        current === undefined ||
+        publication._creationTime > current._creationTime
+      ) {
+        latestBySteal.set(publication.stealId, publication);
+      }
+    }
+
+    return await Promise.all(
+      steals.map(async (steal) => {
+        const post = await ctx.db.get(steal.competitorPostId);
+        const publication = latestBySteal.get(steal._id);
+        return {
+          stealId: steal._id,
+          createdAt: steal.createdAt,
+          platform: steal.targetPlatform,
+          weakness: steal.targetWeakness,
+          auraScore: steal.auraOpportunityScore,
+          postUrl: post?.originalPostUrl ?? null,
+          authorHandle: post?.authorHandle ?? null,
+          publicationStatus: publication?.status ?? "draft",
+        };
+      }),
+    );
   },
 });
 
@@ -500,25 +562,20 @@ export const analyzePostPipeline = internalAction({
         });
       }
 
-      const analysis = await runLlmAnalysis({
-        brandName: packed.brand.name,
-        industry: packed.brand.industry,
-        description: packed.brand.description,
-        tone: packed.preferences.tone,
-        bannedPhrases: packed.preferences.bannedPhrases,
-        bannedTopics: packed.preferences.bannedTopics,
-        customInstructions: packed.preferences.customInstructions,
-        riskLevel,
-        platform: args.targetPlatform,
-        originalContent: packed.post.originalContent,
-        authorHandle: packed.post.authorHandle,
-        metrics: packed.post.metrics,
-        topReplies: packed.post.topReplies,
-        userContext: args.userContext,
-        maxLength: packed.preferences.maxLength,
-        useEmojis: packed.preferences.useEmojis,
-        useHashtags: packed.preferences.useHashtags,
-      });
+      const analysis = await runLlmAnalysis(
+        llmInputFromPacked(
+          {
+            brand: packed.brand,
+            preferences: packed.preferences,
+            post: packed.post,
+          },
+          {
+            riskLevel,
+            platform: args.targetPlatform,
+            userContext: args.userContext,
+          },
+        ),
+      );
 
       const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
         postId: args.postId,
@@ -659,25 +716,20 @@ export const regenerateCopy = action({
       });
     }
 
-    const analysis = await runLlmAnalysis({
-      brandName: packed.brand.name,
-      industry: packed.brand.industry,
-      description: packed.brand.description,
-      tone: packed.preferences.tone,
-      bannedPhrases: packed.preferences.bannedPhrases,
-      bannedTopics: packed.preferences.bannedTopics,
-      customInstructions: packed.preferences.customInstructions,
-      riskLevel,
-      platform: steal.targetPlatform,
-      originalContent: packed.post.originalContent,
-      authorHandle: packed.post.authorHandle,
-      metrics: packed.post.metrics,
-      topReplies: packed.post.topReplies,
-      userContext: steal.userContext,
-      maxLength: packed.preferences.maxLength,
-      useEmojis: packed.preferences.useEmojis,
-      useHashtags: packed.preferences.useHashtags,
-    });
+    const analysis = await runLlmAnalysis(
+      llmInputFromPacked(
+        {
+          brand: packed.brand,
+          preferences: packed.preferences,
+          post: packed.post,
+        },
+        {
+          riskLevel,
+          platform: steal.targetPlatform,
+          userContext: steal.userContext,
+        },
+      ),
+    );
 
     await ctx.runMutation(internal.analysis.patchStealCopy, {
       stealId: args.stealId,
@@ -726,6 +778,41 @@ async function loadAnalysisContextDocs(
   const steal = args.stealId ? await ctx.db.get(args.stealId) : null;
 
   return { brand, preferences, post, steal };
+}
+
+function llmInputFromPacked(
+  packed: {
+    brand: Doc<"brands">;
+    preferences: Doc<"brand_preferences">;
+    post: Doc<"competitor_posts">;
+  },
+  extras: {
+    riskLevel: number;
+    platform: Platform;
+    userContext?: string;
+  },
+): AnalysisInput {
+  return {
+    brandName: packed.brand.name,
+    industry: packed.brand.industry,
+    description: packed.brand.description,
+    tone: packed.preferences.tone,
+    bannedPhrases: packed.preferences.bannedPhrases,
+    bannedTopics: packed.preferences.bannedTopics,
+    customInstructions: packed.preferences.customInstructions,
+    riskLevel: extras.riskLevel,
+    platform: extras.platform,
+    originalContent: packed.post.originalContent,
+    authorHandle: packed.post.authorHandle,
+    metrics: packed.post.metrics,
+    topReplies: packed.post.topReplies,
+    userContext: extras.userContext,
+    maxLength: packed.preferences.maxLength,
+    useEmojis: packed.preferences.useEmojis,
+    useHashtags: packed.preferences.useHashtags,
+    logoUrl: packed.brand.logoUrl,
+    designTokens: packed.brand.designTokens,
+  };
 }
 
 async function upsertCompetitorPost(

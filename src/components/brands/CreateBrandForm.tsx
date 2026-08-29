@@ -16,7 +16,11 @@ function errorMessage(error: unknown): string {
   return "Could not create brand.";
 }
 
-export function CreateBrandForm() {
+export function CreateBrandForm({
+  onCreated,
+}: {
+  onCreated?: () => void;
+}) {
   const createBrand = useMutation(api.brands.create);
   const router = useRouter();
   const [name, setName] = useState("");
@@ -36,6 +40,7 @@ export function CreateBrandForm() {
         description: description.trim(),
         website: trimmedWebsite.length > 0 ? trimmedWebsite : undefined,
       });
+      onCreated?.();
       router.push(analyzePath(brandId));
     } catch (caught) {
       setError(errorMessage(caught));
