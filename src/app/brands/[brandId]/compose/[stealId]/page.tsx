@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Copy,
   ExternalLink,
+  Film,
   ImageIcon,
   Loader2,
   RefreshCw,
@@ -53,7 +54,9 @@ function SocialPreviewCard({
   copyText,
   imageUrl,
   audioUrl,
+  videoUrl,
   isGeneratingImage,
+  isGeneratingVideo,
 }: {
   platform: Platform;
   brandName: string;
@@ -61,7 +64,9 @@ function SocialPreviewCard({
   copyText: string;
   imageUrl: string | null;
   audioUrl: string | null;
+  videoUrl: string | null;
   isGeneratingImage: boolean;
+  isGeneratingVideo: boolean;
 }) {
   const handle = `@${brandName.toLowerCase().replace(/\s+/g, "")}`;
 
@@ -120,6 +125,21 @@ function SocialPreviewCard({
           </div>
         )}
 
+        {isGeneratingVideo ? (
+          <div className="aspect-[9/16] max-h-80 animate-pulse rounded-xl bg-gradient-to-br from-zinc-900 via-zinc-800 to-fuchsia-950/40">
+            <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
+              <Loader2 size={16} className="animate-spin" />
+              Generando video con fal.ai…
+            </div>
+          </div>
+        ) : videoUrl ? (
+          <video
+            controls
+            src={videoUrl}
+            className="max-h-80 w-full rounded-xl border border-zinc-800 bg-black object-contain"
+          />
+        ) : null}
+
         {audioUrl ? (
           <div className="rounded-xl border border-zinc-800 bg-black/50 p-3">
             <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-500">
@@ -146,6 +166,7 @@ export default function ComposePage() {
 
   const regenerateCopy = useAction(api.analysis.regenerateCopy);
   const generateImage = useAction(api.assets.generateImage);
+  const generateVideo = useAction(api.assets.generateVideo);
   const enqueuePublication = useMutation(api.publisher.enqueue);
   const saveEditedCopy = useMutation(api.analysis.updateEditedResponse);
 
@@ -155,6 +176,7 @@ export default function ComposePage() {
   const [requestError, setRequestError] = useState<string | null>(null);
   const [isRegeneratingCopy, setIsRegeneratingCopy] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [successState, setSuccessState] = useState<ComposeSuccessState | null>(
     null,
@@ -219,6 +241,22 @@ export default function ComposePage() {
       setRequestError(getErrorMessage(error));
     } finally {
       setIsGeneratingImage(false);
+    }
+  }
+
+  async function handleGenerateVideo() {
+    setRequestError(null);
+    setIsGeneratingVideo(true);
+    try {
+      await generateVideo({
+        stealId,
+        duration: 5,
+        aspectRatio: previewPlatform === "linkedin" ? "16:9" : "9:16",
+      });
+    } catch (error) {
+      setRequestError(getErrorMessage(error));
+    } finally {
+      setIsGeneratingVideo(false);
     }
   }
 
@@ -393,7 +431,12 @@ export default function ComposePage() {
             <button
               type="button"
               onClick={handleGenerateImage}
-              disabled={isGeneratingImage || assetGenerating || isPublishing}
+              disabled={
+                isGeneratingImage ||
+                isGeneratingVideo ||
+                assetGenerating ||
+                isPublishing
+              }
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
             >
               {isGeneratingImage || assetGenerating ? (
@@ -403,11 +446,30 @@ export default function ComposePage() {
               )}
               Generar / Regenerar Imagen
             </button>
+
+            <button
+              type="button"
+              onClick={handleGenerateVideo}
+              disabled={
+                isGeneratingImage ||
+                isGeneratingVideo ||
+                assetGenerating ||
+                isPublishing
+              }
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
+            >
+              {isGeneratingVideo || assetGenerating ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Film size={16} />
+              )}
+              Generar video 5s
+            </button>
           </div>
 
           {assets?.asset?.status === "failed" ? (
             <p className="text-sm text-red-300">
-              La generación de imagen falló. Intenta regenerar.
+              La generación de imagen o video falló. Intenta regenerar.
             </p>
           ) : null}
 
@@ -443,7 +505,9 @@ export default function ComposePage() {
             copyText={copyText}
             imageUrl={assets?.imageUrl ?? null}
             audioUrl={assets?.audioUrl ?? null}
+            videoUrl={assets?.videoUrl ?? null}
             isGeneratingImage={Boolean(isGeneratingImage || assetGenerating)}
+            isGeneratingVideo={Boolean(isGeneratingVideo || assetGenerating)}
           />
 
           <article className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4 text-sm text-zinc-400">
