@@ -15,12 +15,12 @@ const azeret = Azeret_Mono({
 export const metadata: Metadata = {
   title: "Aura Engine",
   description:
-    "Paste a competitor post. Aura reads the thread, scores the opening, and drafts the reply at your risk level.",
+    "Tu competidor ya tiene la atención. Aura Engine escribe cuando el flanco ya está abierto.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${azeret.variable} h-full`}>
+    <html lang="en" className={`${azeret.variable} h-full scroll-smooth`}>
       <body className="flex min-h-full flex-col bg-background font-mono text-foreground">
         <ClerkProvider appearance={{ theme: shadcn }}>
           <ConvexClientProvider>
