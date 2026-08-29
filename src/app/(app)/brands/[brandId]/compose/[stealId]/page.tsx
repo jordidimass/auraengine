@@ -298,7 +298,7 @@ export default function ComposePage() {
     try {
       await generateVideo({
         stealId,
-        duration: 5,
+        duration: 6,
         aspectRatio: previewPlatform === "linkedin" ? "16:9" : "9:16",
       });
     } catch (error) {
@@ -501,7 +501,7 @@ export default function ComposePage() {
               ) : (
                 <Film />
               )}
-              Generar video 5s
+              Generar video 6s
             </Button>
           </div>
 
