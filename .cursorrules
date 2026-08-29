@@ -1,12 +1,25 @@
 You are a senior full-stack engineer building "AuraEngine — Competitor Aura Steal" for a hackathon track: CONTENT MACHINE.
 
+Read PROJECT_SPEC.md before writing code. It is the team contract.
+
 Tech Stack:
 - Frontend: Next.js (App Router), Tailwind CSS, Lucide Icons, Framer Motion
 - Backend & Realtime State: Convex (Mutations, Queries, Actions, HTTP Actions)
-- External APIs: OpenAI (GPT-4o), ElevenLabs (TTS), Apify/Tavily, n8n
+- Auth: Convex Auth (email/password + Google)
+- External APIs: OpenAI (GPT-4o), ElevenLabs (TTS), Apify / Exa, fal.ai
+
+Team file ownership — do not edit files outside your column without asking:
+- Jordi: src/components/ui/*, design tokens, AuraCounter, RiskSlider
+- Josue: convex/schema.ts, convex/brands.ts, convex/preferences.ts, convex/authz.ts, convex/domain.ts
+- Deyane: convex/analysis.ts, convex/assets.ts, convex/lib/*, all external API calls in actions
+- Hugo / Hector: convex/publisher.ts, convex/social.ts, app routes, Convex client wiring
 
 Rules:
 1. Adhere strictly to official Convex patterns: define schemas in convex/schema.ts, keep database logic in mutations/queries, keep external API calls in actions.
-2. Build responsive, cyberpunk/dark-mode aesthetic UI components with Tailwind CSS.
-3. Every component must be production-grade, typed with TypeScript interfaces, with no mock placeholders unless explicitly marked TODO.
-4. Keep components modular and isolated to prevent merge conflicts across the team.
+2. Every query/mutation that takes a brandId must verify the brand belongs to the authenticated user via requireBrandOwner.
+3. OAuth tokens never leave the backend. listConnected strips accessToken/refreshToken.
+4. No hard deletes — archive or status transitions only.
+5. Build responsive, cyberpunk/dark-mode aesthetic UI components with Tailwind CSS.
+6. Every component must be production-grade, typed with TypeScript interfaces, with no mock placeholders unless explicitly marked TODO.
+7. Keep components modular and isolated to prevent merge conflicts across the team.
+8. Everything hangs off brandId. Preferences live on the brand, not the user.
