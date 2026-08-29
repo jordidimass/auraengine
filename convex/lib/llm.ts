@@ -61,7 +61,7 @@ DEVUELVE JSON
   { "weakness": string, "auraScore": number, "response": string, "visualPrompt": string }
 
 auraScore es 0-100. response debe respetar maxLength y el registro de riesgo.
-visualPrompt describe una imagen de post lista para fal.ai, coherente con el copy.`;
+visualPrompt describe un plano listo para fal.ai (imagen o clip de ~5s), coherente con el copy, con movimiento de cámara sutil y sin texto en pantalla.`;
 }
 
 function parseAnalysis(raw: string): AnalysisJson {

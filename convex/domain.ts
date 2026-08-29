@@ -25,6 +25,18 @@ export const assetStatusValidator = v.union(
   v.literal("failed"),
 );
 
+export const assetKindValidator = v.union(
+  v.literal("image"),
+  v.literal("audio"),
+  v.literal("video"),
+);
+
+export const videoAspectRatioValidator = v.union(
+  v.literal("16:9"),
+  v.literal("9:16"),
+  v.literal("1:1"),
+);
+
 export const publicationModeValidator = v.union(
   v.literal("live"),
   v.literal("draft"),
@@ -44,6 +56,8 @@ export const socialAccountStatusValidator = v.union(
 );
 
 export type Platform = "x" | "linkedin";
+export type AssetKind = "image" | "audio" | "video";
+export type VideoAspectRatio = "16:9" | "9:16" | "1:1";
 
 export function assertNonEmpty(value: string, field: string) {
   if (value.trim().length === 0) {

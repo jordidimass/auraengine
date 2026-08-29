@@ -8,6 +8,7 @@ import {
   publicationStatusValidator,
   socialAccountStatusValidator,
   toneValidator,
+  videoAspectRatioValidator,
 } from "./domain";
 
 export default defineSchema({
@@ -80,6 +81,9 @@ export default defineSchema({
     visualPrompt: v.string(),
     imageStorageId: v.optional(v.id("_storage")),
     audioStorageId: v.optional(v.id("_storage")),
+    videoStorageId: v.optional(v.id("_storage")),
+    videoDurationSeconds: v.optional(v.number()),
+    videoAspectRatio: v.optional(videoAspectRatioValidator),
     status: assetStatusValidator,
     generation: v.number(),
     createdAt: v.number(),
@@ -92,6 +96,9 @@ export default defineSchema({
     mode: publicationModeValidator,
     finalText: v.string(),
     imageStorageId: v.optional(v.id("_storage")),
+    videoStorageId: v.optional(v.id("_storage")),
+    videoDurationSeconds: v.optional(v.number()),
+    videoAspectRatio: v.optional(videoAspectRatioValidator),
     status: publicationStatusValidator,
     retryCount: v.number(),
     lastError: v.optional(v.string()),

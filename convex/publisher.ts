@@ -78,14 +78,19 @@ export const enqueue = mutation({
         q.eq("brandId", brand._id).eq("platform", args.platform),
       )
       .unique();
-    const mode = account?.status === "active" ? "live" : "draft";
-    const auraDelta = projectedAuraGain(steal.auraOpportunityScore);
-
     const latestAsset = await ctx.db
       .query("publication_assets")
       .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
       .order("desc")
       .first();
+    const hasMedia = Boolean(
+      latestAsset?.imageStorageId || latestAsset?.videoStorageId,
+    );
+    // X/LinkedIn adapters are text-only. Keep media in a draft instead of
+    // publishing the caption alone and reporting success.
+    const mode =
+      account?.status === "active" && !hasMedia ? "live" : "draft";
+    const auraDelta = projectedAuraGain(steal.auraOpportunityScore);
 
     const publicationId = await ctx.db.insert("publications", {
       brandId: brand._id,
@@ -94,6 +99,9 @@ export const enqueue = mutation({
       mode,
       finalText,
       imageStorageId: latestAsset?.imageStorageId,
+      videoStorageId: latestAsset?.videoStorageId,
+      videoDurationSeconds: latestAsset?.videoDurationSeconds,
+      videoAspectRatio: latestAsset?.videoAspectRatio,
       status: "pending",
       retryCount: 0,
     });
