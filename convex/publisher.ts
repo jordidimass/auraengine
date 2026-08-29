@@ -8,7 +8,7 @@ import {
   query,
 } from "./_generated/server";
 import { requireBrandOwner } from "./authz";
-import { platformValidator } from "./domain";
+import { platformValidator, type Platform } from "./domain";
 import { requireSteal } from "./stealAccess";
 
 const MAX_RETRIES = 3;
@@ -214,10 +214,18 @@ export const loadPublicationAccount = internalQuery({
 });
 
 async function publishLive(args: {
-  platform: "x" | "linkedin";
+  platform: Platform;
   text: string;
   accessToken: string;
 }): Promise<string> {
+  if (args.platform === "instagram") {
+    throw new ConvexError({
+      code: "INSTAGRAM_PUBLISH_NOT_SUPPORTED",
+      message:
+        "Instagram publishing isn't wired up yet. Use draft mode for Instagram posts.",
+    });
+  }
+
   if (args.platform === "x") {
     const response = await fetch("https://api.x.com/2/tweets", {
       method: "POST",

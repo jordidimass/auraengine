@@ -18,6 +18,7 @@ import {
   competitorPostStatusValidator,
   normalizeOptionalText,
   platformValidator,
+  type Platform,
 } from "./domain";
 import { runLlmAnalysis } from "./lib/llm";
 import { assertCompetitorPostUrl, normalizeCompetitorUrl, scrapeCompetitorPost } from "./lib/scrape";
@@ -618,7 +619,7 @@ async function loadAnalysisContextDocs(
     brandId: Id<"brands">;
     postId?: Id<"competitor_posts">;
     stealId?: Id<"aura_steals">;
-    targetPlatform: "x" | "linkedin";
+    targetPlatform: Platform;
   },
 ) {
   const brand = await ctx.db.get(args.brandId);
@@ -653,7 +654,7 @@ async function upsertCompetitorPost(
   ctx: MutationCtx,
   args: {
     brandId: Id<"brands">;
-    platform: "x" | "linkedin";
+    platform: Platform;
     url: string;
     content: string;
     authorHandle: string;
@@ -699,7 +700,7 @@ async function insertSteal(
   args: {
     postId: Id<"competitor_posts">;
     brandId: Id<"brands">;
-    platform: "x" | "linkedin";
+    platform: Platform;
     riskLevel: number;
     userContext?: string;
     score: number;

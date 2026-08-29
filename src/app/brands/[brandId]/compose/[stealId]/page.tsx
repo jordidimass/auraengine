@@ -1,8 +1,12 @@
 "use client";
 
+import { BrandHeader } from "@/components/brands/BrandHeader";
+import { PlatformToggle } from "@/components/brands/PlatformToggle";
 import { RiskSlider } from "@/components/RiskSlider";
+import { Button } from "@/components/ui/button";
 import { projectedAuraGain } from "@/lib/aura";
-import { analyzePath, isBrandDocumentId, preferencesPath } from "@/lib/routes";
+import { platformLabel, type Platform } from "@/lib/platforms";
+import { analyzePath, isBrandDocumentId } from "@/lib/routes";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
@@ -22,8 +26,6 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../../../convex/_generated/api";
 import type { Id } from "../../../../../../convex/_generated/dataModel";
 
-type Platform = "x" | "linkedin";
-
 interface ComposeSuccessState {
   auraDelta: number;
 }
@@ -35,20 +37,27 @@ function getErrorMessage(error: unknown): string {
   return "Ocurrió un error inesperado.";
 }
 
-function platformIntentUrl(platform: Platform, text: string): string {
+function platformIntentUrl(platform: Platform, text: string): string | null {
   const encoded = encodeURIComponent(text);
   if (platform === "x") {
     return `https://twitter.com/intent/tweet?text=${encoded}`;
   }
-  return `https://www.linkedin.com/feed/?shareActive=true&text=${encoded}`;
+  if (platform === "linkedin") {
+    return `https://www.linkedin.com/feed/?shareActive=true&text=${encoded}`;
+  }
+  // Instagram has no web share-intent URL — copy the text and open the app.
+  return null;
 }
 
-function platformLabel(platform: Platform): string {
-  return platform === "x" ? "X (Twitter)" : "LinkedIn";
+function CenteredMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
 }
 
 function SocialPreviewCard({
-  platform,
   brandName,
   logoUrl,
   copyText,
@@ -58,7 +67,6 @@ function SocialPreviewCard({
   isGeneratingImage,
   isGeneratingVideo,
 }: {
-  platform: Platform;
   brandName: string;
   logoUrl?: string;
   copyText: string;
@@ -71,43 +79,37 @@ function SocialPreviewCard({
   const handle = `@${brandName.toLowerCase().replace(/\s+/g, "")}`;
 
   return (
-    <div
-      className={`overflow-hidden rounded-2xl border bg-zinc-950/80 ${
-        platform === "x"
-          ? "border-zinc-800"
-          : "border-[#0a66c2]/30 shadow-[0_0_30px_rgba(10,102,194,0.08)]"
-      }`}
-    >
-      <div className="flex items-center gap-3 border-b border-zinc-800/80 px-4 py-3">
+    <div className="overflow-hidden border border-border">
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
         {logoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={logoUrl}
             alt={brandName}
-            className="h-10 w-10 rounded-full object-cover ring-1 ring-fuchsia-500/30"
+            className="h-10 w-10 rounded-full object-cover ring-1 ring-primary/30"
           />
         ) : (
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-fuchsia-500/20 text-sm font-bold text-fuchsia-200">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
             {brandName.slice(0, 1).toUpperCase()}
           </div>
         )}
         <div>
-          <p className="text-sm font-semibold text-zinc-100">{brandName}</p>
-          <p className="text-xs text-zinc-500">{handle}</p>
+          <p className="text-sm font-medium">{brandName}</p>
+          <p className="text-xs text-muted-foreground">{handle}</p>
         </div>
-        <span className="ml-auto rounded-full bg-zinc-900 px-2 py-1 text-[10px] uppercase tracking-widest text-zinc-500">
+        <span className="ml-auto rounded-full bg-muted px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground">
           Preview
         </span>
       </div>
 
       <div className="space-y-4 p-4">
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+        <p className="whitespace-pre-wrap text-sm leading-relaxed">
           {copyText || "Tu copy aparecerá aquí…"}
         </p>
 
         {isGeneratingImage ? (
-          <div className="aspect-[1200/630] animate-pulse rounded-xl bg-gradient-to-br from-zinc-900 via-zinc-800 to-fuchsia-950/40">
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
+          <div className="flex aspect-[1200/630] animate-pulse items-center justify-center border border-border bg-muted/40">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 size={16} className="animate-spin" />
               Generando imagen con fal.ai…
             </div>
@@ -117,17 +119,17 @@ function SocialPreviewCard({
           <img
             src={imageUrl}
             alt="Visual generado"
-            className="aspect-[1200/630] w-full rounded-xl border border-zinc-800 object-cover"
+            className="aspect-[1200/630] w-full border border-border object-cover"
           />
         ) : (
-          <div className="flex aspect-[1200/630] items-center justify-center rounded-xl border border-dashed border-zinc-800 bg-black/40 text-sm text-zinc-600">
+          <div className="flex aspect-[1200/630] items-center justify-center border border-dashed border-border text-sm text-muted-foreground">
             Sin imagen — pulsa &quot;Generar / Regenerar Imagen&quot;
           </div>
         )}
 
         {isGeneratingVideo ? (
-          <div className="aspect-[9/16] max-h-80 animate-pulse rounded-xl bg-gradient-to-br from-zinc-900 via-zinc-800 to-fuchsia-950/40">
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500">
+          <div className="flex aspect-[9/16] max-h-80 animate-pulse items-center justify-center border border-border bg-muted/40">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 size={16} className="animate-spin" />
               Generando video con fal.ai…
             </div>
@@ -136,13 +138,13 @@ function SocialPreviewCard({
           <video
             controls
             src={videoUrl}
-            className="max-h-80 w-full rounded-xl border border-zinc-800 bg-black object-contain"
+            className="max-h-80 w-full border border-border bg-background object-contain"
           />
         ) : null}
 
         {audioUrl ? (
-          <div className="rounded-xl border border-zinc-800 bg-black/50 p-3">
-            <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-500">
+          <div className="border border-border p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
               <Volume2 size={14} />
               Voiceover ElevenLabs
             </div>
@@ -297,97 +299,88 @@ export default function ComposePage() {
     }
 
     void navigator.clipboard.writeText(copyText.trim());
-    window.open(platformIntentUrl(previewPlatform, copyText.trim()), "_blank");
+    const intentUrl = platformIntentUrl(previewPlatform, copyText.trim());
+    if (intentUrl) {
+      window.open(intentUrl, "_blank");
+    } else {
+      window.open("https://www.instagram.com/", "_blank");
+    }
   }
 
   if (composeData === undefined) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-black text-zinc-400">
+      <CenteredMessage>
         <Loader2 className="animate-spin" size={24} />
-      </div>
+      </CenteredMessage>
     );
   }
 
   if (composeData === null) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black text-zinc-300">
+      <CenteredMessage>
         <p>Steal no encontrado o sin acceso.</p>
-        <Link
-          href={analyzePath(brandId)}
-          className="text-fuchsia-300 hover:underline"
-        >
+        <Link href={analyzePath(brandId)} className="text-primary hover:underline">
           Volver al análisis
         </Link>
-      </div>
+      </CenteredMessage>
     );
   }
 
   const { steal, brand, post } = composeData;
 
   return (
-    <div className="relative min-h-screen bg-black bg-[radial-gradient(circle_at_top,_rgba(217,70,239,0.08),_transparent_60%)] text-zinc-100">
+    <div className="relative min-h-dvh">
       {successState ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-fuchsia-400/40 bg-zinc-950 p-8 text-center shadow-[0_0_60px_rgba(217,70,239,0.25)]">
-            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-fuchsia-500/20">
-              <Zap className="text-fuchsia-300" size={28} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-6 backdrop-blur-sm">
+          <div className="w-full max-w-md border border-primary/40 bg-card p-8 text-center">
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+              <Zap className="text-primary" size={28} />
             </div>
-            <h2 className="text-xl font-bold text-fuchsia-100">
-              ¡Aura robada exitosamente!
-            </h2>
-            <p className="mt-2 text-3xl font-bold text-fuchsia-300">
+            <h2 className="text-lg font-medium">¡Aura robada exitosamente!</h2>
+            <p className="mt-2 text-3xl font-medium text-primary">
               +{successState.auraDelta.toLocaleString("es-MX")} Puntos
             </p>
-            <p className="mt-2 text-sm text-zinc-400">
+            <p className="mt-2 text-sm text-muted-foreground">
               agregados al Ledger de {brand.name}
             </p>
           </div>
         </div>
       ) : null}
 
-      <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
-        <div className="flex items-center gap-4">
-          <Link
-            href={analyzePath(brandId)}
-            className="inline-flex items-center gap-2 text-sm text-zinc-500 transition hover:text-fuchsia-300"
-          >
-            <ArrowLeft size={16} />
-            Volver a Análisis
-          </Link>
-          <Link
-            href={preferencesPath(brandId)}
-            className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
-          >
-            Preferencias
-          </Link>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">
-              Vista 3 · Composición
-            </h1>
-            <p className="text-xs text-zinc-500">
-              vs @{post.authorHandle} · {brand.name}
-            </p>
-          </div>
-        </div>
-
-        <div className="inline-flex items-center gap-2 rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-4 py-2">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-fuchsia-400 opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-fuchsia-400" />
+      <BrandHeader
+        brandId={brandId}
+        brandName={brand.name}
+        title={`Compose · vs @${post.authorHandle}`}
+        extra={
+          <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+            </span>
+            <span className="font-mono text-xs font-medium text-primary">
+              +{projectedGain.toLocaleString("es-MX")} AURA
+            </span>
           </span>
-          <span className="font-mono text-sm font-semibold text-fuchsia-200">
-            ⚡ +{projectedGain.toLocaleString("es-MX")} AURA
-          </span>
-        </div>
-      </header>
+        }
+      />
 
-      <main className="mx-auto grid max-w-6xl gap-6 px-6 pb-32 lg:grid-cols-2">
-        <section className="space-y-5 rounded-2xl border border-zinc-800/80 bg-zinc-950/70 p-6">
+      <div className="border-b border-border px-3 py-2 sm:px-4">
+        <Link
+          href={analyzePath(brandId)}
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition hover:text-foreground"
+        >
+          <ArrowLeft size={14} />
+          Volver a Análisis
+        </Link>
+      </div>
+
+      <main className="mx-auto grid max-w-5xl gap-4 px-3 py-8 pb-32 sm:px-6 sm:py-12 sm:pb-32 lg:grid-cols-2">
+        <section className="flex flex-col gap-4 border border-border p-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-400/70">
+            <p className="text-[11px] tracking-[0.16em] text-muted-foreground">
               Copy & Riesgo
             </p>
-            <p className="mt-1 text-sm text-zinc-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               Ajusta el texto antes de publicar. Score actual:{" "}
               {steal.auraOpportunityScore}/100
             </p>
@@ -398,7 +391,7 @@ export default function ComposePage() {
             onChange={(event) => setCopyText(event.target.value)}
             rows={12}
             disabled={isRegeneratingCopy || isPublishing}
-            className="w-full resize-y rounded-xl border border-zinc-800 bg-black px-4 py-3 text-sm leading-relaxed text-zinc-100 outline-none transition focus:border-fuchsia-500/60 disabled:opacity-60"
+            className="w-full resize-y border border-input bg-transparent px-3 py-2 text-sm leading-relaxed outline-none transition focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
             placeholder="Contranarrativa generada…"
           />
 
@@ -409,7 +402,7 @@ export default function ComposePage() {
           />
 
           {activePreference ? (
-            <p className="text-xs text-zinc-600">
+            <p className="text-xs text-muted-foreground">
               Preferencia {platformLabel(previewPlatform)}: tono{" "}
               {activePreference.tone}, máx. {activePreference.maxLength}{" "}
               caracteres
@@ -417,22 +410,23 @@ export default function ComposePage() {
           ) : null}
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              className="flex-1"
               onClick={handleRegenerateCopy}
               disabled={isRegeneratingCopy || isPublishing}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
             >
               {isRegeneratingCopy ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <RefreshCw size={16} />
+                <RefreshCw />
               )}
               Regenerar Copy
-            </button>
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              className="flex-1"
               onClick={handleGenerateImage}
               disabled={
                 isGeneratingImage ||
@@ -440,18 +434,18 @@ export default function ComposePage() {
                 assetGenerating ||
                 isPublishing
               }
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
             >
               {isGeneratingImage || assetGenerating ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <ImageIcon size={16} />
+                <ImageIcon />
               )}
               Generar / Regenerar Imagen
-            </button>
+            </Button>
 
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              className="flex-1"
               onClick={handleGenerateVideo}
               disabled={
                 isGeneratingImage ||
@@ -459,50 +453,33 @@ export default function ComposePage() {
                 assetGenerating ||
                 isPublishing
               }
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
             >
               {isGeneratingVideo || assetGenerating ? (
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 className="animate-spin" />
               ) : (
-                <Film size={16} />
+                <Film />
               )}
               Generar video 5s
-            </button>
+            </Button>
           </div>
 
           {assets?.asset?.status === "failed" ? (
-            <p className="text-sm text-red-300">
+            <p className="text-sm text-destructive">
               La generación de imagen o video falló. Intenta regenerar.
             </p>
           ) : null}
 
           {requestError ? (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <p className="border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {requestError}
             </p>
           ) : null}
         </section>
 
-        <section className="space-y-4">
-          <div className="flex gap-2">
-            {(["x", "linkedin"] as const).map((platform) => (
-              <button
-                key={platform}
-                type="button"
-                onClick={() => setPreviewPlatform(platform)}
-                className={`rounded-full px-4 py-2 text-xs uppercase tracking-widest transition ${
-                  previewPlatform === platform
-                    ? "bg-fuchsia-500/20 text-fuchsia-200 ring-1 ring-fuchsia-400/40"
-                    : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {platform === "x" ? "X (Twitter)" : "LinkedIn"}
-              </button>
-            ))}
-          </div>
+        <section className="flex flex-col gap-4">
+          <PlatformToggle value={previewPlatform} onChange={setPreviewPlatform} />
 
           <SocialPreviewCard
-            platform={previewPlatform}
             brandName={brand.name}
             logoUrl={brand.logoUrl}
             copyText={copyText}
@@ -513,43 +490,40 @@ export default function ComposePage() {
             isGeneratingVideo={Boolean(isGeneratingVideo || assetGenerating)}
           />
 
-          <article className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4 text-sm text-zinc-400">
-            <p className="text-xs uppercase tracking-widest text-zinc-600">
+          <article className="border border-border p-3 text-sm text-muted-foreground">
+            <p className="text-xs uppercase tracking-widest">
               Debilidad detectada
             </p>
-            <p className="mt-2 leading-relaxed text-zinc-300">
-              {steal.targetWeakness}
-            </p>
+            <p className="mt-2 leading-relaxed">{steal.targetWeakness}</p>
           </article>
         </section>
       </main>
 
-      <footer className="fixed inset-x-0 bottom-0 border-t border-zinc-800/80 bg-black/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-4 sm:flex-row">
-          <button
-            type="button"
+      <footer className="fixed inset-x-0 bottom-0 border-t border-border bg-background/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-5xl flex-col gap-3 px-3 py-4 sm:flex-row sm:px-6">
+          <Button
+            className="flex-1"
             onClick={handlePublish}
             disabled={isPublishing || isRegeneratingCopy}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-fuchsia-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isPublishing ? (
-              <Loader2 size={16} className="animate-spin" />
+              <Loader2 className="animate-spin" />
             ) : (
-              <Sparkles size={16} />
+              <Sparkles />
             )}
-            ⚡ Steal Aura & Publish
-          </button>
+            Steal Aura & Publish
+          </Button>
 
-          <button
-            type="button"
+          <Button
+            variant="outline"
+            className="flex-1"
             onClick={handleCopyAndOpen}
             disabled={isPublishing}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-5 py-3 text-sm font-semibold text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
           >
-            <Copy size={16} />
+            <Copy />
             Copiar Copy y Abrir Red
-            <ExternalLink size={14} />
-          </button>
+            <ExternalLink />
+          </Button>
         </div>
       </footer>
     </div>

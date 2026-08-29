@@ -3,6 +3,7 @@ import { ConvexError, v } from "convex/values";
 export const platformValidator = v.union(
   v.literal("x"),
   v.literal("linkedin"),
+  v.literal("instagram"),
 );
 
 export const toneValidator = v.union(
@@ -55,7 +56,7 @@ export const socialAccountStatusValidator = v.union(
   v.literal("revoked"),
 );
 
-export type Platform = "x" | "linkedin";
+export type Platform = "x" | "linkedin" | "instagram";
 export type AssetKind = "image" | "audio" | "video";
 export type VideoAspectRatio = "16:9" | "9:16" | "1:1";
 
