@@ -3,6 +3,7 @@ import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import {
   action,
+  internalAction,
   internalMutation,
   mutation,
   query,
@@ -238,11 +239,15 @@ export const finishGeneration = internalMutation({
       });
     }
     if (args.error || !args.storageId) {
-      await ctx.db.patch(args.assetId, { status: "failed" });
+      await ctx.db.patch(args.assetId, {
+        status: "failed",
+        lastError: args.error,
+      });
       return;
     }
     await ctx.db.patch(args.assetId, {
       status: "ready",
+      lastError: undefined,
       ...(args.kind === "image"
         ? { imageStorageId: args.storageId }
         : args.kind === "audio"
@@ -655,13 +660,51 @@ export const generateVoice = action({
   },
 });
 
+export const continueGenerateVideo = internalAction({
+  args: {
+    assetId: v.id("publication_assets"),
+    visualPrompt: v.string(),
+    duration: v.union(v.literal(5), v.literal(10)),
+    aspectRatio: videoAspectRatioValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      const videoUrl = await generateFalVideo(
+        args.visualPrompt,
+        args.duration,
+        args.aspectRatio,
+      );
+      const storageId = await storeFromUrl(ctx, videoUrl, "video/mp4");
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: args.assetId,
+        kind: "video",
+        storageId,
+        videoDurationSeconds: args.duration,
+        videoAspectRatio: args.aspectRatio,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.assets.finishGeneration, {
+        assetId: args.assetId,
+        kind: "video",
+        error: publicErrorMessage(error, "Video generation failed"),
+      });
+    }
+    return null;
+  },
+});
+
 export const generateVideo = action({
   args: {
     stealId: v.id("aura_steals"),
     duration: v.optional(v.union(v.literal(5), v.literal(10))),
     aspectRatio: v.optional(videoAspectRatioValidator),
   },
-  handler: async (ctx, args): Promise<Id<"publication_assets">> => {
+  returns: v.id("publication_assets"),
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Id<"publication_assets">> => {
     const userId = await requireUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyStealOwner, {
       stealId: args.stealId,
@@ -674,29 +717,12 @@ export const generateVideo = action({
       stealId: args.stealId,
       kind: "video",
     });
-    try {
-      const videoUrl = await generateFalVideo(
-        prepared.visualPrompt,
-        duration,
-        aspectRatio,
-      );
-      const storageId = await storeFromUrl(ctx, videoUrl, "video/mp4");
-      await ctx.runMutation(internal.assets.finishGeneration, {
-        assetId: prepared.assetId,
-        kind: "video",
-        storageId,
-        videoDurationSeconds: duration,
-        videoAspectRatio: aspectRatio,
-      });
-      return prepared.assetId;
-    } catch (error) {
-      const message = publicErrorMessage(error, "Video generation failed");
-      await ctx.runMutation(internal.assets.finishGeneration, {
-        assetId: prepared.assetId,
-        kind: "video",
-        error: message,
-      });
-      throw error;
-    }
+    await ctx.scheduler.runAfter(0, internal.assets.continueGenerateVideo, {
+      assetId: prepared.assetId,
+      visualPrompt: prepared.visualPrompt,
+      duration,
+      aspectRatio,
+    });
+    return prepared.assetId;
   },
 });

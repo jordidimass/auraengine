@@ -87,6 +87,7 @@ export default defineSchema({
     videoDurationSeconds: v.optional(v.number()),
     videoAspectRatio: v.optional(videoAspectRatioValidator),
     status: assetStatusValidator,
+    lastError: v.optional(v.string()),
     generation: v.number(),
     createdAt: v.number(),
   }).index("by_steal", ["stealId"]),

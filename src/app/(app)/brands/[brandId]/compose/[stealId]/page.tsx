@@ -247,6 +247,22 @@ export default function ComposePage() {
     }
   }, [composeData?.steal]);
 
+  useEffect(() => {
+    if (!isGeneratingVideo) {
+      return;
+    }
+    if (assets?.videoUrl) {
+      setIsGeneratingVideo(false);
+      return;
+    }
+    if (assets?.asset?.status === "failed") {
+      setIsGeneratingVideo(false);
+      if (assets.asset.lastError) {
+        setRequestError(assets.asset.lastError);
+      }
+    }
+  }, [assets, isGeneratingVideo]);
+
   const projectedGain =
     composeData?.steal !== undefined
       ? projectedAuraGain(composeData.steal.auraOpportunityScore)
@@ -302,9 +318,8 @@ export default function ComposePage() {
         aspectRatio: previewPlatform === "linkedin" ? "16:9" : "9:16",
       });
     } catch (error) {
-      setRequestError(getErrorMessage(error));
-    } finally {
       setIsGeneratingVideo(false);
+      setRequestError(getErrorMessage(error));
     }
   }
 
@@ -480,7 +495,7 @@ export default function ComposePage() {
               variant="outline"
               className="flex-1"
               onClick={handleGenerateImage}
-              disabled={imageBusy || isPublishing}
+              disabled={imageBusy || videoBusy || isPublishing}
             >
               {imageBusy ? (
                 <Loader2 className="animate-spin" />
@@ -494,7 +509,7 @@ export default function ComposePage() {
               variant="outline"
               className="flex-1"
               onClick={handleGenerateVideo}
-              disabled={videoBusy || isPublishing}
+              disabled={videoBusy || imageBusy || isPublishing}
             >
               {videoBusy ? (
                 <Loader2 className="animate-spin" />
@@ -507,7 +522,8 @@ export default function ComposePage() {
 
           {assets?.asset?.status === "failed" ? (
             <p className="text-sm text-destructive">
-              La generación de imagen o video falló. Intenta regenerar.
+              {assets.asset.lastError ??
+                "La generación de imagen o video falló. Intenta regenerar."}
             </p>
           ) : null}
 
