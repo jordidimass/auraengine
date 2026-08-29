@@ -219,7 +219,8 @@ export default function ComposePage() {
       ? projectedAuraGain(composeData.steal.auraOpportunityScore)
       : 0;
 
-  const assetGenerating = assets?.asset?.status === "generating";
+  const imageBusy = isGeneratingImage;
+  const videoBusy = isGeneratingVideo;
   const activePreference =
     preferences === undefined
       ? undefined
@@ -428,14 +429,9 @@ export default function ComposePage() {
               variant="outline"
               className="flex-1"
               onClick={handleGenerateImage}
-              disabled={
-                isGeneratingImage ||
-                isGeneratingVideo ||
-                assetGenerating ||
-                isPublishing
-              }
+              disabled={imageBusy || isPublishing}
             >
-              {isGeneratingImage || assetGenerating ? (
+              {imageBusy ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <ImageIcon />
@@ -447,14 +443,9 @@ export default function ComposePage() {
               variant="outline"
               className="flex-1"
               onClick={handleGenerateVideo}
-              disabled={
-                isGeneratingImage ||
-                isGeneratingVideo ||
-                assetGenerating ||
-                isPublishing
-              }
+              disabled={videoBusy || isPublishing}
             >
-              {isGeneratingVideo || assetGenerating ? (
+              {videoBusy ? (
                 <Loader2 className="animate-spin" />
               ) : (
                 <Film />
@@ -486,8 +477,8 @@ export default function ComposePage() {
             imageUrl={assets?.imageUrl ?? null}
             audioUrl={assets?.audioUrl ?? null}
             videoUrl={assets?.videoUrl ?? null}
-            isGeneratingImage={Boolean(isGeneratingImage || assetGenerating)}
-            isGeneratingVideo={Boolean(isGeneratingVideo || assetGenerating)}
+            isGeneratingImage={imageBusy}
+            isGeneratingVideo={videoBusy}
           />
 
           <article className="border border-border p-3 text-sm text-muted-foreground">

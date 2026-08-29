@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { Platform } from "@/lib/platforms";
 import { composePath, isBrandDocumentId } from "@/lib/routes";
+import { ConvexError } from "convex/values";
 import { useAction, useQuery } from "convex/react";
 import { AlertCircle, ArrowRight, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -16,7 +17,22 @@ import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
 
 function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
+  if (error instanceof ConvexError) {
+    const data: unknown = error.data;
+    if (typeof data === "string" && data.length > 0) {
+      return data;
+    }
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message === "string" &&
+      data.message.length > 0
+    ) {
+      return data.message;
+    }
+  }
+  if (error instanceof Error && error.message.length > 0) {
     return error.message;
   }
   return "Ocurrió un error inesperado al analizar el post.";
