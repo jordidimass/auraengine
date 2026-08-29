@@ -133,21 +133,34 @@ export const getPost = query({
 });
 
 export const getStealById = query({
-  args: { stealId: v.id("aura_steals") },
+  args: { stealId: v.string() },
   handler: async (ctx, args) => {
-    const steal = await ctx.db.get(args.stealId);
-    if (steal === null) {
+    const stealId = ctx.db.normalizeId("aura_steals", args.stealId);
+    if (stealId === null) {
       return null;
     }
 
-    await requireBrandOwner(ctx, steal.brandId);
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return null;
+    }
+
+    const steal = await ctx.db.get(stealId);
+    if (steal === null) {
+      return null;
+    }
 
     const [post, brand] = await Promise.all([
       ctx.db.get(steal.competitorPostId),
       ctx.db.get(steal.brandId),
     ]);
 
-    if (post === null || brand === null) {
+    if (
+      post === null ||
+      brand === null ||
+      brand.userId !== identity.subject ||
+      brand.archived
+    ) {
       return null;
     }
 
