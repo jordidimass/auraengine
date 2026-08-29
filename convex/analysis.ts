@@ -30,6 +30,28 @@ const metricsValidator = v.object({
   replies: v.number(),
 });
 
+function publicErrorMessage(error: unknown): string {
+  if (error instanceof ConvexError) {
+    const data: unknown = error.data;
+    if (typeof data === "string" && data.length > 0) {
+      return data;
+    }
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message === "string" &&
+      data.message.length > 0
+    ) {
+      return data.message;
+    }
+  }
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return "Analysis pipeline failed";
+}
+
 export const verifyBrandOwner = internalQuery({
   args: {
     brandId: v.id("brands"),
@@ -403,12 +425,10 @@ export const scrapePostFromUrl = internalAction({
       });
       return postId;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Scrape failed";
       await ctx.runMutation(internal.analysis.markPost, {
         postId,
         status: "failed",
-        error: message,
+        error: publicErrorMessage(error),
       });
       throw error;
     }
@@ -511,15 +531,51 @@ export const analyzePostPipeline = internalAction({
       });
       return stealId;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Analysis pipeline failed";
       await ctx.runMutation(internal.analysis.markPost, {
         postId: args.postId,
         status: "failed",
-        error: message,
+        error: publicErrorMessage(error),
       });
       throw error;
     }
+  },
+});
+
+export const continueAnalyzeFromPost = internalAction({
+  args: {
+    postId: v.id("competitor_posts"),
+    url: v.string(),
+    riskLevel: v.number(),
+    targetPlatform: platformValidator,
+    userContext: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    try {
+      const scraped = await scrapeCompetitorPost(args.url);
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId: args.postId,
+        status: "analyzing",
+        originalContent: scraped.originalContent,
+        authorHandle: scraped.authorHandle,
+        metrics: scraped.metrics,
+        topReplies: scraped.topReplies,
+        platform: scraped.platform,
+      });
+      await ctx.runAction(internal.analysis.analyzePostPipeline, {
+        postId: args.postId,
+        riskLevel: args.riskLevel,
+        targetPlatform: args.targetPlatform,
+        userContext: args.userContext,
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId: args.postId,
+        status: "failed",
+        error: publicErrorMessage(error),
+      });
+    }
+    return null;
   },
 });
 
@@ -531,23 +587,42 @@ export const analyzeUrl = action({
     userContext: v.optional(v.string()),
     targetPlatform: platformValidator,
   },
-  handler: async (
-    ctx,
-    args,
-  ): Promise<{ postId: Id<"competitor_posts">; stealId: Id<"aura_steals"> }> => {
+  returns: v.object({
+    postId: v.id("competitor_posts"),
+  }),
+  handler: async (ctx, args) => {
     const userId = await requireUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyBrandOwner, {
       brandId: args.brandId,
       userId,
     });
 
-    return await ctx.runAction(internal.analysis.scrapeAndAnalyzeFromUrl, {
+    let url: string;
+    try {
+      url = normalizeCompetitorUrl(args.url.trim());
+    } catch {
+      throw new ConvexError({
+        code: "INVALID_POST_URL",
+        message: "That is not a valid URL.",
+      });
+    }
+    const platform = detectPlatformFromUrl(url);
+    assertCompetitorPostUrl(url);
+    const postId = await ctx.runMutation(internal.analysis.beginScrape, {
       brandId: args.brandId,
-      url: args.url.trim(),
+      url,
+      platform,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.analysis.continueAnalyzeFromPost, {
+      postId,
+      url,
       riskLevel: requireIntegerRisk(args.riskLevel),
       targetPlatform: args.targetPlatform,
       userContext: args.userContext,
     });
+
+    return { postId };
   },
 });
 

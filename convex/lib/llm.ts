@@ -114,7 +114,22 @@ visualPrompt describe un plano listo para fal.ai (imagen o clip de ~5s), coheren
 }
 
 function parseAnalysis(raw: string): AnalysisJson {
-  const json = JSON.parse(raw) as Partial<AnalysisJson>;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new ConvexError({
+      code: "LLM_INVALID_JSON",
+      message: "LLM returned incomplete analysis JSON",
+    });
+  }
+  if (parsed === null || typeof parsed !== "object") {
+    throw new ConvexError({
+      code: "LLM_INVALID_JSON",
+      message: "LLM returned incomplete analysis JSON",
+    });
+  }
+  const json = parsed as Partial<AnalysisJson>;
   const weakness = json.weakness?.trim();
   const response = json.response?.trim();
   const visualPrompt = json.visualPrompt?.trim();
