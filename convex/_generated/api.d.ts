@@ -10,7 +10,6 @@
 
 import type * as analysis from "../analysis.js";
 import type * as assets from "../assets.js";
-import type * as auth from "../auth.js";
 import type * as authz from "../authz.js";
 import type * as brandDefaults from "../brandDefaults.js";
 import type * as brands from "../brands.js";
@@ -33,7 +32,6 @@ import type {
 declare const fullApi: ApiFromModules<{
   analysis: typeof analysis;
   assets: typeof assets;
-  auth: typeof auth;
   authz: typeof authz;
   brandDefaults: typeof brandDefaults;
   brands: typeof brands;
