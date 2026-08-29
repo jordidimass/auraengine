@@ -132,10 +132,13 @@ visualPrompt describe un plano listo para fal.ai (imagen o clip de ~5s), coheren
 const SYSTEM_JSON_ONLY =
   "You write counter-narratives for a brand stealing competitor aura. Reply with one JSON object only. Keys must be exactly weakness, auraScore, response, visualPrompt. Never wrap in markdown. Never translate the keys.";
 
-function invalidAnalysisJson(): never {
+function invalidAnalysisJson(raw?: string): never {
+  const snippet = raw?.replace(/\s+/g, " ").trim().slice(0, 180);
   throw new ConvexError({
     code: "LLM_INVALID_JSON",
-    message: "LLM returned incomplete analysis JSON",
+    message: snippet
+      ? `LLM returned incomplete analysis JSON: ${snippet}`
+      : "LLM returned incomplete analysis JSON",
   });
 }
 
@@ -218,64 +221,256 @@ function unwrapAnalysisRecord(parsed: unknown): Record<string, unknown> | null {
   return record;
 }
 
-export function parseAnalysis(raw: string): AnalysisJson {
-  let parsed: unknown;
-  for (const candidate of extractJsonCandidates(raw)) {
-    try {
-      parsed = JSON.parse(candidate);
-      break;
-    } catch {
-      parsed = undefined;
+const WEAKNESS_KEYS = ["weakness", "debilidad", "gap", "critique"];
+const RESPONSE_KEYS = [
+  "response",
+  "respuesta",
+  "copy",
+  "counter",
+  "counterNarrative",
+  "reply",
+];
+const VISUAL_KEYS = [
+  "visualPrompt",
+  "visual_prompt",
+  "promptVisual",
+  "imagePrompt",
+  "videoPrompt",
+];
+const SCORE_KEYS = [
+  "auraScore",
+  "aura_score",
+  "score",
+  "puntuacion",
+  "puntuación",
+];
+
+function stripLlmNoise(raw: string): string {
+  return raw
+    .replace(/^\uFEFF/, "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim();
+}
+
+function unescapeJsonString(value: string): string {
+  return value
+    .replace(/\\n/g, "\n")
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, "\\")
+    .trim();
+}
+
+function extractQuotedField(raw: string, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const closed = new RegExp(
+      `["']${key}["']\\s*:\\s*["']((?:\\\\.|[^\\\\"'])*)["']`,
+      "i",
+    );
+    const match = raw.match(closed);
+    if (match?.[1]?.trim()) {
+      return unescapeJsonString(match[1]);
+    }
+    const open = new RegExp(`["']${key}["']\\s*:\\s*["']([\\s\\S]+)$`, "i");
+    const partial = raw.match(open);
+    if (partial?.[1] && partial[1].trim().length > 12) {
+      return unescapeJsonString(partial[1].replace(/["}\s]+$/, ""));
     }
   }
-  if (parsed === undefined) {
-    invalidAnalysisJson();
-  }
+  return undefined;
+}
 
-  const json = unwrapAnalysisRecord(parsed);
+function extractScore(raw: string): number | undefined {
+  for (const key of SCORE_KEYS) {
+    const match = raw.match(
+      new RegExp(`["']${key}["']\\s*:\\s*("?)(\\d+(?:\\.\\d+)?)\\1`, "i"),
+    );
+    if (match?.[2]) {
+      const parsed = Number(match[2]);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function tryRepairJson(raw: string): unknown {
+  const start = raw.indexOf("{");
+  if (start < 0) {
+    return undefined;
+  }
+  let repaired = raw.slice(start);
+  const quoteCount = (repaired.match(/(?<!\\)"/g) ?? []).length;
+  if (quoteCount % 2 === 1) {
+    repaired += '"';
+  }
+  const opens = (repaired.match(/{/g) ?? []).length;
+  const closes = (repaired.match(/}/g) ?? []).length;
+  repaired += "}".repeat(Math.max(0, opens - closes));
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    return undefined;
+  }
+}
+
+function fieldsFromRecord(value: unknown): Partial<AnalysisJson> {
+  const json = unwrapAnalysisRecord(value);
   if (json === null) {
-    invalidAnalysisJson();
+    return {};
+  }
+  return {
+    weakness: firstString(json, WEAKNESS_KEYS),
+    response: firstString(json, RESPONSE_KEYS),
+    visualPrompt: firstString(json, VISUAL_KEYS),
+    auraScore: firstNumber(json, SCORE_KEYS),
+  };
+}
+
+function mergeFields(
+  ...parts: Array<Partial<AnalysisJson>>
+): Partial<AnalysisJson> {
+  const merged: Partial<AnalysisJson> = {};
+  for (const part of parts) {
+    if (part.weakness) merged.weakness = part.weakness;
+    if (part.response) merged.response = part.response;
+    if (part.visualPrompt) merged.visualPrompt = part.visualPrompt;
+    if (part.auraScore !== undefined) merged.auraScore = part.auraScore;
+  }
+  return merged;
+}
+
+function defaultVisualPrompt(fields: Partial<AnalysisJson>): string | undefined {
+  if (fields.visualPrompt) {
+    return fields.visualPrompt;
+  }
+  if (!fields.weakness && !fields.response) {
+    return undefined;
+  }
+  const about = fields.weakness ?? fields.response;
+  return `Editorial still, warm paper, subtle camera drift, no on-screen text. Mood matches: ${about}`;
+}
+
+export function parseAnalysis(raw: string): AnalysisJson {
+  const cleaned = stripLlmNoise(raw);
+  const fromParse: Partial<AnalysisJson>[] = [];
+  for (const candidate of extractJsonCandidates(cleaned)) {
+    try {
+      fromParse.push(fieldsFromRecord(JSON.parse(candidate)));
+    } catch {
+      // keep looking
+    }
+  }
+  const repaired = tryRepairJson(cleaned);
+  if (repaired !== undefined) {
+    fromParse.push(fieldsFromRecord(repaired));
   }
 
-  const weakness = firstString(json, [
-    "weakness",
-    "debilidad",
-    "gap",
-    "critique",
-  ]);
-  const response = firstString(json, [
-    "response",
-    "respuesta",
-    "copy",
-    "counter",
-    "counterNarrative",
-    "reply",
-  ]);
-  const visualPrompt = firstString(json, [
-    "visualPrompt",
-    "visual_prompt",
-    "promptVisual",
-    "imagePrompt",
-    "videoPrompt",
-  ]);
-  const auraScore = firstNumber(json, [
-    "auraScore",
-    "aura_score",
-    "score",
-    "puntuacion",
-    "puntuación",
-  ]);
+  const fields = mergeFields(
+    {
+      weakness: extractQuotedField(cleaned, WEAKNESS_KEYS),
+      response: extractQuotedField(cleaned, RESPONSE_KEYS),
+      visualPrompt: extractQuotedField(cleaned, VISUAL_KEYS),
+      auraScore: extractScore(cleaned),
+    },
+    ...fromParse,
+  );
+  const visualPrompt = defaultVisualPrompt(fields);
+  const auraScore = fields.auraScore ?? 64;
 
-  if (!weakness || !response || !visualPrompt || auraScore === undefined) {
-    invalidAnalysisJson();
+  if (!fields.weakness || !fields.response || !visualPrompt) {
+    invalidAnalysisJson(cleaned);
   }
 
   return {
-    weakness,
-    response,
+    weakness: fields.weakness,
+    response: fields.response,
     visualPrompt,
     auraScore: Math.max(0, Math.min(100, Math.round(auraScore))),
   };
+}
+
+async function completeChat(
+  provider: LlmProvider,
+  input: AnalysisInput,
+  options: {
+    temperature: number;
+    extraUserNote?: string;
+    jsonMode?: boolean;
+  },
+): Promise<string> {
+  const userContent = options.extraUserNote
+    ? `${buildAnalysisPrompt(input)}\n\n${options.extraUserNote}`
+    : buildAnalysisPrompt(input);
+
+  const payload: Record<string, unknown> = {
+    model: provider.model,
+    temperature: options.temperature,
+    max_tokens: 2500,
+    messages: [
+      { role: "system", content: SYSTEM_JSON_ONLY },
+      { role: "user", content: userContent },
+    ],
+  };
+  if (options.jsonMode !== false) {
+    payload.response_format = { type: "json_object" };
+  }
+
+  const response = await fetch(provider.endpoint, {
+    method: "POST",
+    headers: provider.headers,
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ConvexError({
+      code: provider.errorCode,
+      message: `${provider.name} failed (${response.status}): ${detail.slice(0, 300)}`,
+    });
+  }
+
+  const content = readMessageContent(await response.json());
+  if (!content) {
+    throw new ConvexError({
+      code: provider.errorCode,
+      message: `${provider.name} returned an empty analysis`,
+    });
+  }
+  return content;
+}
+
+export async function runLlmAnalysis(
+  input: AnalysisInput,
+): Promise<AnalysisJson> {
+  const provider = resolveLlmProvider();
+  const first = await completeChat(provider, input, { temperature: 0.7 });
+  try {
+    return parseAnalysis(first);
+  } catch (firstError) {
+    console.error(
+      "LLM analysis JSON parse failed, retrying",
+      first.slice(0, 400),
+    );
+    const retry = await completeChat(provider, input, {
+      temperature: 0,
+      jsonMode: false,
+      extraUserNote:
+        'Return ONLY this shape: {"weakness":"...","auraScore":72,"response":"...","visualPrompt":"..."}',
+    });
+    try {
+      return parseAnalysis(retry);
+    } catch {
+      console.error(
+        "LLM analysis JSON retry also failed",
+        firstError,
+        retry.slice(0, 400),
+      );
+      invalidAnalysisJson(retry);
+    }
+  }
 }
 
 function readMessageContent(body: unknown): string | undefined {
@@ -311,69 +506,4 @@ function readMessageContent(body: unknown): string | undefined {
     messageRecord.reasoning.trim()
     ? messageRecord.reasoning
     : undefined;
-}
-
-async function completeChat(
-  provider: LlmProvider,
-  input: AnalysisInput,
-  options: { temperature: number; extraUserNote?: string },
-): Promise<string> {
-  const userContent = options.extraUserNote
-    ? `${buildAnalysisPrompt(input)}\n\n${options.extraUserNote}`
-    : buildAnalysisPrompt(input);
-
-  const response = await fetch(provider.endpoint, {
-    method: "POST",
-    headers: provider.headers,
-    body: JSON.stringify({
-      model: provider.model,
-      temperature: options.temperature,
-      max_tokens: 2500,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM_JSON_ONLY },
-        { role: "user", content: userContent },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new ConvexError({
-      code: provider.errorCode,
-      message: `${provider.name} failed (${response.status}): ${detail.slice(0, 300)}`,
-    });
-  }
-
-  const content = readMessageContent(await response.json());
-  if (!content) {
-    throw new ConvexError({
-      code: provider.errorCode,
-      message: `${provider.name} returned an empty analysis`,
-    });
-  }
-  return content;
-}
-
-export async function runLlmAnalysis(
-  input: AnalysisInput,
-): Promise<AnalysisJson> {
-  const provider = resolveLlmProvider();
-  const first = await completeChat(provider, input, { temperature: 0.7 });
-  try {
-    return parseAnalysis(first);
-  } catch {
-    console.error("LLM analysis JSON parse failed, retrying", first.slice(0, 400));
-    const retry = await completeChat(provider, input, {
-      temperature: 0,
-      extraUserNote:
-        'Return ONLY this shape: {"weakness":"...","auraScore":72,"response":"...","visualPrompt":"..."}',
-    });
-    try {
-      return parseAnalysis(retry);
-    } catch {
-      console.error("LLM analysis JSON retry also failed", retry.slice(0, 400));
-      invalidAnalysisJson();
-    }
-  }
 }
