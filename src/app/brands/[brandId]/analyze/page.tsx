@@ -77,6 +77,9 @@ export default function AnalyzePage() {
   }
 
   async function handleAnalyze() {
+    if (!brandId) {
+      return;
+    }
     const trimmedUrl = url.trim();
     if (!trimmedUrl) {
       setRequestError("Pega la URL del post competidor antes de analizar.");
@@ -103,7 +106,7 @@ export default function AnalyzePage() {
   }
 
   function handleApprove() {
-    if (!analysis?.steal) {
+    if (!brandId || !analysis?.steal) {
       return;
     }
     router.push(composePath(brandId, analysis.steal._id));

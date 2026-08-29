@@ -78,8 +78,30 @@ function isSocialPostUrl(url: string): boolean {
   }
 }
 
+/** Canonicalize X/LinkedIn URLs before scrape (twitter.com → x.com, strip query/hash). */
+export function normalizeCompetitorUrl(raw: string): string {
+  const trimmed = raw.trim();
+  const parsed = new URL(trimmed);
+  const host = parsed.hostname.replace(/^www\./, "");
+  if (host === "twitter.com" || host === "mobile.twitter.com") {
+    parsed.hostname = "x.com";
+  }
+  parsed.search = "";
+  parsed.hash = "";
+  let normalized = parsed.toString();
+  if (normalized.endsWith("/") && parsed.pathname.length > 1) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+export function statusIdFromUrl(url: string): string | null {
+  const match = url.match(/\/status\/(\d+)/);
+  return match?.[1] ?? null;
+}
+
 export function assertCompetitorPostUrl(url: string) {
-  const parsed = new URL(url);
+  const parsed = new URL(normalizeCompetitorUrl(url));
   const host = parsed.hostname.replace(/^www\./, "");
   const path = parsed.pathname;
 
@@ -134,25 +156,59 @@ function textFromItem(item: ApifyItem): string | undefined {
   );
 }
 
+function itemMatchesStatusId(item: ApifyItem, statusId: string): boolean {
+  const candidates = [
+    item.id,
+    item.tweetId,
+    item.id_str,
+    item.rest_id,
+    item.url,
+    item.twitterUrl,
+  ];
+  return candidates.some((value) => {
+    if (value === undefined || value === null) return false;
+    const asText = String(value);
+    return asText === statusId || asText.includes(`/status/${statusId}`);
+  });
+}
+
 function mapApifyItems(url: string, items: ApifyItem[]): ScrapedPost | null {
   if (items.length === 0) return null;
+
+  const statusId = statusIdFromUrl(url);
   const main =
-    items.find((item) => item.isReply !== true && textFromItem(item)) ?? items[0];
+    (statusId
+      ? items.find(
+          (item) => itemMatchesStatusId(item, statusId) && textFromItem(item),
+        )
+      : undefined) ??
+    items.find((item) => item.isReply !== true && textFromItem(item)) ??
+    items.find((item) => textFromItem(item)) ??
+    items[0];
+
   const content = textFromItem(main);
   if (!content) return null;
+
   const replies = items
     .filter((item) => item !== main)
     .map(textFromItem)
     .filter((text): text is string => Boolean(text))
     .slice(0, 5);
+
   return {
     platform: detectPlatformFromUrl(url),
     originalContent: content.slice(0, 4000),
     authorHandle: authorHandleFromItem(main),
     metrics: {
-      likes: asNumber(main.likeCount ?? main.likes ?? main.numLikes),
-      reposts: asNumber(main.retweetCount ?? main.reposts ?? main.numShares),
-      replies: asNumber(main.replyCount ?? main.comments ?? replies.length),
+      likes: asNumber(
+        main.likeCount ?? main.likes ?? main.favoriteCount ?? main.numLikes,
+      ),
+      reposts: asNumber(
+        main.retweetCount ?? main.reposts ?? main.retweets ?? main.numShares,
+      ),
+      replies: asNumber(
+        main.replyCount ?? main.replies ?? main.comments ?? replies.length,
+      ),
     },
     topReplies: replies,
   };
@@ -162,7 +218,8 @@ async function scrapeWithApify(url: string): Promise<ScrapedPost | null> {
   const token = process.env.APIFY_API_TOKEN ?? process.env.APIFY_TOKEN;
   if (!token) return null;
 
-  const platform = detectPlatformFromUrl(url);
+  const normalizedUrl = normalizeCompetitorUrl(url);
+  const platform = detectPlatformFromUrl(normalizedUrl);
   const actor =
     platform === "linkedin"
       ? (process.env.APIFY_LINKEDIN_ACTOR ?? "apify~website-content-crawler")
@@ -170,8 +227,8 @@ async function scrapeWithApify(url: string): Promise<ScrapedPost | null> {
 
   const input =
     actor.includes("website-content-crawler")
-      ? { startUrls: [{ url }], maxCrawlPages: 1 }
-      : { startUrls: [url], maxItems: 8 };
+      ? { startUrls: [{ url: normalizedUrl }], maxCrawlPages: 1 }
+      : { startUrls: [normalizedUrl], maxItems: 8, sort: "Latest" };
 
   const endpoint = new URL(
     `https://api.apify.com/v2/acts/${actor}/run-sync-get-dataset-items`,
@@ -272,9 +329,25 @@ async function scrapeOpenGraph(url: string): Promise<ScrapedPost> {
 }
 
 export async function scrapeCompetitorPost(url: string): Promise<ScrapedPost> {
-  assertCompetitorPostUrl(url);
-  if (isSocialPostUrl(url)) {
+  const normalizedUrl = normalizeCompetitorUrl(url);
+  assertCompetitorPostUrl(normalizedUrl);
+
+  if (isSocialPostUrl(normalizedUrl)) {
     const token = process.env.APIFY_API_TOKEN ?? process.env.APIFY_TOKEN;
+    if (token) {
+      const fromApify = await scrapeWithApify(normalizedUrl);
+      if (fromApify) return fromApify;
+    }
+
+    try {
+      const fromOg = await scrapeOpenGraph(normalizedUrl);
+      if (fromOg.originalContent.length > 40) {
+        return fromOg;
+      }
+    } catch {
+      // fall through to explicit error below
+    }
+
     if (!token) {
       throw new ConvexError({
         code: "MISSING_APIFY_TOKEN",
@@ -282,15 +355,15 @@ export async function scrapeCompetitorPost(url: string): Promise<ScrapedPost> {
           "X/LinkedIn need APIFY_API_TOKEN. Set it with: npx convex env set APIFY_API_TOKEN",
       });
     }
-    const fromApify = await scrapeWithApify(url);
-    if (fromApify) return fromApify;
+
     throw new ConvexError({
       code: "SCRAPE_FAILED",
-      message: "Apify returned no post content for that URL.",
+      message:
+        "Could not scrape that X/LinkedIn URL. Verify the link is public and APIFY_X_ACTOR is configured.",
     });
   }
 
-  const fromExa = await scrapeWithExa(url);
+  const fromExa = await scrapeWithExa(normalizedUrl);
   if (fromExa) return fromExa;
-  return await scrapeOpenGraph(url);
+  return await scrapeOpenGraph(normalizedUrl);
 }
