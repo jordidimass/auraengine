@@ -30,7 +30,33 @@ interface ComposeSuccessState {
 }
 
 function getErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "data" in error) {
+    const data = (error as { data: unknown }).data;
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message === "string" &&
+      data.message.length > 0
+    ) {
+      return data.message;
+    }
+    if (typeof data === "string" && data.length > 0) {
+      return data;
+    }
+  }
   if (error instanceof Error) {
+    const encoded = error.message.match(/Uncaught ConvexError: ({[\s\S]*})/);
+    if (encoded?.[1]) {
+      try {
+        const parsed = JSON.parse(encoded[1]) as { message?: string };
+        if (parsed.message) {
+          return parsed.message;
+        }
+      } catch {
+        // keep the Convex wrapper message
+      }
+    }
     return error.message;
   }
   return "Ocurrió un error inesperado.";
