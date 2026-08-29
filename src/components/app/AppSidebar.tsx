@@ -111,11 +111,13 @@ export function AppSidebar() {
                 <span className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
                   A
                 </span>
-                <span className="font-semibold">Aura Engine</span>
+                <span className="font-semibold group-data-[collapsible=icon]:hidden">
+                  Aura Engine
+                </span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem>
+          <SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -242,13 +244,17 @@ export function AppSidebar() {
               className="pointer-events-none"
             >
               <Zap />
-              <span className="tabular-nums">{(aura ?? 0).toLocaleString()}</span>
+              <span className="tabular-nums group-data-[collapsible=icon]:hidden">
+                {(aura ?? 0).toLocaleString()}
+              </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          <SidebarMenuItem>
+            <div className="flex items-center gap-2 p-2">
+              <AuthControls variant="sidebar" />
+            </div>
+          </SidebarMenuItem>
         </SidebarMenu>
-        <div className="flex justify-center px-2 group-data-[collapsible=icon]:px-0">
-          <AuthControls variant="sidebar" />
-        </div>
       </SidebarFooter>
       <SidebarRail />
 
