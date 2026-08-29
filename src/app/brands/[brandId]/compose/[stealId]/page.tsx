@@ -2,7 +2,7 @@
 
 import { RiskSlider } from "@/components/RiskSlider";
 import { projectedAuraGain } from "@/lib/aura";
-import { analyzePath, preferencesPath } from "@/lib/routes";
+import { analyzePath, isBrandDocumentId, preferencesPath } from "@/lib/routes";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
@@ -161,7 +161,10 @@ export default function ComposePage() {
   const stealId = params.stealId as Id<"aura_steals">;
 
   const composeData = useQuery(api.analysis.getStealById, { stealId });
-  const preferences = useQuery(api.preferences.getByBrand, { brandId });
+  const preferences = useQuery(
+    api.preferences.getByBrand,
+    isBrandDocumentId(params.brandId) ? { brandId: params.brandId } : "skip",
+  );
   const assets = useQuery(api.assets.getAssets, { stealId });
 
   const regenerateCopy = useAction(api.analysis.regenerateCopy);

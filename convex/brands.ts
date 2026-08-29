@@ -14,11 +14,14 @@ const nullableOptionalString = v.optional(v.union(v.string(), v.null()));
 export const listMine = query({
   args: {},
   handler: async (ctx) => {
-    const userId = await requireUserId(ctx);
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return [];
+    }
     return await ctx.db
       .query("brands")
       .withIndex("by_user_active", (q) =>
-        q.eq("userId", userId).eq("archived", false),
+        q.eq("userId", identity.subject).eq("archived", false),
       )
       .order("desc")
       .collect();
@@ -26,12 +29,26 @@ export const listMine = query({
 });
 
 export const getById = query({
-  args: { brandId: v.id("brands") },
+  args: { brandId: v.string() },
   handler: async (ctx, args) => {
-    const brand = await requireBrandOwner(ctx, args.brandId);
+    const brandId = ctx.db.normalizeId("brands", args.brandId);
+    if (brandId === null) {
+      return null;
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return null;
+    }
+
+    const brand = await ctx.db.get(brandId);
+    if (brand === null || brand.userId !== identity.subject || brand.archived) {
+      return null;
+    }
+
     const preferences = await ctx.db
       .query("brand_preferences")
-      .withIndex("by_brand", (q) => q.eq("brandId", args.brandId))
+      .withIndex("by_brand", (q) => q.eq("brandId", brandId))
       .collect();
 
     return {
