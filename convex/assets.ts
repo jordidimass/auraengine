@@ -133,10 +133,26 @@ export const prepareGeneration = internalMutation({
       .first();
 
     if (latest?.status === "generating") {
-      throw new ConvexError({
-        code: "ASSET_GENERATION_IN_PROGRESS",
-        message: "Wait for the current asset generation to finish",
-      });
+      const hasMedia =
+        latest.imageStorageId !== undefined ||
+        latest.audioStorageId !== undefined ||
+        latest.videoStorageId !== undefined;
+      if (hasMedia) {
+        throw new ConvexError({
+          code: "ASSET_GENERATION_IN_PROGRESS",
+          message: "Wait for the current asset generation to finish",
+        });
+      }
+      await ctx.db.patch(latest._id, { status: "generating" });
+      const copy = steal.editedResponse ?? steal.generatedResponse;
+      const visualPrompt =
+        latest.visualPrompt ||
+        `Cyberpunk social post visual for: ${copy.slice(0, 280)}`;
+      return {
+        assetId: latest._id,
+        visualPrompt,
+        copy,
+      };
     }
 
     const copy = steal.editedResponse ?? steal.generatedResponse;

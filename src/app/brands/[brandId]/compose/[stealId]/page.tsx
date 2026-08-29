@@ -217,7 +217,8 @@ export default function ComposePage() {
       ? projectedAuraGain(composeData.steal.auraOpportunityScore)
       : 0;
 
-  const assetGenerating = assets?.asset?.status === "generating";
+  const imageBusy = isGeneratingImage;
+  const videoBusy = isGeneratingVideo;
   const activePreference =
     preferences === undefined
       ? undefined
@@ -434,15 +435,10 @@ export default function ComposePage() {
             <button
               type="button"
               onClick={handleGenerateImage}
-              disabled={
-                isGeneratingImage ||
-                isGeneratingVideo ||
-                assetGenerating ||
-                isPublishing
-              }
+              disabled={imageBusy || isPublishing}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
             >
-              {isGeneratingImage || assetGenerating ? (
+              {imageBusy ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (
                 <ImageIcon size={16} />
@@ -453,15 +449,10 @@ export default function ComposePage() {
             <button
               type="button"
               onClick={handleGenerateVideo}
-              disabled={
-                isGeneratingImage ||
-                isGeneratingVideo ||
-                assetGenerating ||
-                isPublishing
-              }
+              disabled={videoBusy || isPublishing}
               className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm font-medium text-zinc-200 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200 disabled:opacity-50"
             >
-              {isGeneratingVideo || assetGenerating ? (
+              {videoBusy ? (
                 <Loader2 size={16} className="animate-spin" />
               ) : (
                 <Film size={16} />
@@ -509,8 +500,8 @@ export default function ComposePage() {
             imageUrl={assets?.imageUrl ?? null}
             audioUrl={assets?.audioUrl ?? null}
             videoUrl={assets?.videoUrl ?? null}
-            isGeneratingImage={Boolean(isGeneratingImage || assetGenerating)}
-            isGeneratingVideo={Boolean(isGeneratingVideo || assetGenerating)}
+            isGeneratingImage={imageBusy}
+            isGeneratingVideo={videoBusy}
           />
 
           <article className="rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4 text-sm text-zinc-400">
