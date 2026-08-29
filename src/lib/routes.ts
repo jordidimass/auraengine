@@ -1,9 +1,28 @@
+import type { Id } from "../../convex/_generated/dataModel";
+
 export const DEMO_BRAND_ID = "demo";
 
-export const dashboardPath = (brandId: string = DEMO_BRAND_ID) =>
-  `/brands/${brandId}/analyze`;
+export function analyzePath(brandId: Id<"brands"> | string = DEMO_BRAND_ID) {
+  return `/brands/${brandId}/analyze`;
+}
 
-export const preferencesPath = (brandId: string = DEMO_BRAND_ID) =>
-  `/brands/${brandId}/preferences`;
+// Alias: some components (AppSidebar) refer to the analyze page as "the
+// dashboard" since it's the default landing spot after sign-in.
+export const dashboardPath = analyzePath;
 
-export const DASHBOARD_PATH = dashboardPath();
+export function preferencesPath(
+  brandId: Id<"brands"> | string = DEMO_BRAND_ID,
+) {
+  return `/brands/${brandId}/preferences`;
+}
+
+export function composePath(
+  brandId: Id<"brands"> | string,
+  stealId: Id<"aura_steals"> | string,
+) {
+  return `/brands/${brandId}/compose/${stealId}`;
+}
+
+// "/brands/demo/analyze" isn't a real Convex id, so post-auth redirects go
+// home instead — the homepage lists the signed-in user's real brands.
+export const DASHBOARD_PATH = "/";

@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { Azeret_Mono } from "next/font/google";
+import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
@@ -22,7 +23,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html lang="en" className={`${azeret.variable} h-full`}>
       <body className="flex min-h-full flex-col bg-background font-mono text-foreground">
         <ClerkProvider appearance={{ theme: shadcn }}>
-          <TooltipProvider>{children}</TooltipProvider>
+          <ConvexClientProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </ConvexClientProvider>
         </ClerkProvider>
       </body>
     </html>

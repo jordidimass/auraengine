@@ -51,10 +51,12 @@ export function riskBandFor(value: number): (typeof BANDS)[number] {
 export function RiskSlider({
   value,
   onChange,
+  disabled = false,
   className,
 }: {
   value: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
   className?: string;
 }) {
   const band = riskBandFor(value);
@@ -90,6 +92,7 @@ export function RiskSlider({
         step={1}
         value={[value]}
         onValueChange={(next) => onChange(next[0] ?? 0)}
+        disabled={disabled}
         aria-label="Risk level"
         className={cn(isRoast && "[&_[data-slot=slider-range]]:bg-risk")}
       />
