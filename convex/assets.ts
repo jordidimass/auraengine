@@ -229,9 +229,53 @@ export const finishGeneration = internalMutation({
   },
 });
 
+function falAuthHeaders(key: string) {
+  return {
+    Authorization: `Key ${key}`,
+    "Content-Type": "application/json",
+  };
+}
+
+function extractFalVideoUrl(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") {
+    return undefined;
+  }
+  const record = body as Record<string, unknown>;
+  const video = record.video;
+  if (video && typeof video === "object") {
+    const url = (video as { url?: unknown }).url;
+    if (typeof url === "string" && url.length > 0) {
+      return url;
+    }
+  }
+  return typeof record.video_url === "string" ? record.video_url : undefined;
+}
+
+function publicErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ConvexError) {
+    const data = error.data as { message?: unknown } | string;
+    if (typeof data === "string" && data.length > 0) {
+      return data;
+    }
+    if (
+      data &&
+      typeof data === "object" &&
+      typeof data.message === "string" &&
+      data.message.length > 0
+    ) {
+      return data.message;
+    }
+  }
+  if (error instanceof Error && error.message.length > 0) {
+    return error.message;
+  }
+  return fallback;
+}
+
 async function storeFromUrl(
   ctx: { storage: { store: (blob: Blob) => Promise<Id<"_storage">> } },
   url: string,
+  fallbackContentType?: string,
 ) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -241,7 +285,12 @@ async function storeFromUrl(
     });
   }
   const blob = await response.blob();
-  return await ctx.storage.store(blob);
+  const needsType =
+    fallbackContentType !== undefined &&
+    (!blob.type || blob.type === "application/octet-stream");
+  return await ctx.storage.store(
+    needsType ? new Blob([blob], { type: fallbackContentType }) : blob,
+  );
 }
 
 async function generateFalImage(prompt: string): Promise<string> {
@@ -304,36 +353,95 @@ async function generateFalVideo(
     });
   }
 
-  const response = await fetch(`https://fal.run/${model}`, {
+  const motionPrompt = `${prompt.slice(0, 2200)}. Cinematic ${duration}s social clip, subtle camera motion, no on-screen text.`;
+  const submit = await fetch(`https://queue.fal.run/${model}`, {
     method: "POST",
-    headers: {
-      Authorization: `Key ${key}`,
-      "Content-Type": "application/json",
-    },
+    headers: falAuthHeaders(key),
     body: JSON.stringify({
-      prompt: prompt.slice(0, 2500),
+      prompt: motionPrompt,
       duration: String(duration),
       aspect_ratio: aspectRatio,
     }),
   });
-  if (!response.ok) {
-    const detail = await response.text();
+  if (!submit.ok) {
+    const detail = await submit.text();
     throw new ConvexError({
       code: "FAL_VIDEO_FAILED",
-      message: `fal.ai video generation failed (${response.status}): ${detail.slice(0, 300)}`,
+      message: `fal.ai video generation failed (${submit.status}): ${detail.slice(0, 300)}`,
     });
   }
-  const body = (await response.json()) as {
+
+  const submitted = (await submit.json()) as {
+    request_id?: string;
     video?: { url?: string };
+    video_url?: string;
   };
-  const url = body.video?.url;
-  if (!url) {
+  const immediateUrl = extractFalVideoUrl(submitted);
+  if (immediateUrl) {
+    return immediateUrl;
+  }
+
+  const requestId = submitted.request_id;
+  if (!requestId || !/^[a-zA-Z0-9_-]+$/.test(requestId)) {
     throw new ConvexError({
       code: "FAL_VIDEO_FAILED",
-      message: "fal.ai returned no video URL",
+      message: "fal.ai returned no video URL or request id",
     });
   }
-  return url;
+
+  const deadline = Date.now() + 8 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const statusResponse = await fetch(
+      `https://queue.fal.run/${model}/requests/${requestId}/status`,
+      { headers: { Authorization: `Key ${key}` } },
+    );
+    if (!statusResponse.ok) {
+      const detail = await statusResponse.text();
+      throw new ConvexError({
+        code: "FAL_VIDEO_FAILED",
+        message: `fal.ai video status failed (${statusResponse.status}): ${detail.slice(0, 300)}`,
+      });
+    }
+    const statusBody = (await statusResponse.json()) as {
+      status?: string;
+      error?: string;
+    };
+    if (statusBody.status === "FAILED") {
+      throw new ConvexError({
+        code: "FAL_VIDEO_FAILED",
+        message: statusBody.error?.slice(0, 300) ?? "fal.ai marked the video job as failed",
+      });
+    }
+    if (statusBody.status !== "COMPLETED") {
+      continue;
+    }
+
+    const resultResponse = await fetch(
+      `https://queue.fal.run/${model}/requests/${requestId}`,
+      { headers: { Authorization: `Key ${key}` } },
+    );
+    if (!resultResponse.ok) {
+      const detail = await resultResponse.text();
+      throw new ConvexError({
+        code: "FAL_VIDEO_FAILED",
+        message: `fal.ai video result failed (${resultResponse.status}): ${detail.slice(0, 300)}`,
+      });
+    }
+    const url = extractFalVideoUrl(await resultResponse.json());
+    if (!url) {
+      throw new ConvexError({
+        code: "FAL_VIDEO_FAILED",
+        message: "fal.ai returned no video URL",
+      });
+    }
+    return url;
+  }
+
+  throw new ConvexError({
+    code: "FAL_VIDEO_FAILED",
+    message: "fal.ai video generation timed out after 8 minutes",
+  });
 }
 
 async function generateElevenLabsAudio(text: string): Promise<ArrayBuffer> {
@@ -379,7 +487,7 @@ export const generateImage = action({
     });
     try {
       const imageUrl = await generateFalImage(prepared.visualPrompt);
-      const storageId = await storeFromUrl(ctx, imageUrl);
+      const storageId = await storeFromUrl(ctx, imageUrl, "image/jpeg");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "image",
@@ -387,8 +495,7 @@ export const generateImage = action({
       });
       return prepared.assetId;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Image generation failed";
+      const message = publicErrorMessage(error, "Image generation failed");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "image",
@@ -418,8 +525,7 @@ export const generateVoice = action({
       });
       return prepared.assetId;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Voice generation failed";
+      const message = publicErrorMessage(error, "Voice generation failed");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "audio",
@@ -449,7 +555,7 @@ export const generateVideo = action({
         duration,
         aspectRatio,
       );
-      const storageId = await storeFromUrl(ctx, videoUrl);
+      const storageId = await storeFromUrl(ctx, videoUrl, "video/mp4");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "video",
@@ -459,8 +565,7 @@ export const generateVideo = action({
       });
       return prepared.assetId;
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Video generation failed";
+      const message = publicErrorMessage(error, "Video generation failed");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "video",
