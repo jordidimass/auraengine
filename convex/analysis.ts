@@ -20,7 +20,7 @@ import {
   platformValidator,
 } from "./domain";
 import { runLlmAnalysis } from "./lib/llm";
-import { assertCompetitorPostUrl, scrapeCompetitorPost } from "./lib/scrape";
+import { assertCompetitorPostUrl, normalizeCompetitorUrl, scrapeCompetitorPost } from "./lib/scrape";
 import { detectPlatformFromUrl, requireIntegerRisk } from "./lib/risk";
 import { requireSteal } from "./stealAccess";
 
@@ -375,6 +375,72 @@ export const getStealInternal = internalQuery({
   },
 });
 
+export const scrapePostFromUrl = internalAction({
+  args: {
+    brandId: v.id("brands"),
+    url: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"competitor_posts">> => {
+    const url = normalizeCompetitorUrl(args.url.trim());
+    const platform = detectPlatformFromUrl(url);
+    assertCompetitorPostUrl(url);
+    const postId = await ctx.runMutation(internal.analysis.beginScrape, {
+      brandId: args.brandId,
+      url,
+      platform,
+    });
+
+    try {
+      const scraped = await scrapeCompetitorPost(url);
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId,
+        status: "analyzing",
+        originalContent: scraped.originalContent,
+        authorHandle: scraped.authorHandle,
+        metrics: scraped.metrics,
+        topReplies: scraped.topReplies,
+        platform: scraped.platform,
+      });
+      return postId;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Scrape failed";
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId,
+        status: "failed",
+        error: message,
+      });
+      throw error;
+    }
+  },
+});
+
+export const scrapeAndAnalyzeFromUrl = internalAction({
+  args: {
+    brandId: v.id("brands"),
+    url: v.string(),
+    riskLevel: v.number(),
+    targetPlatform: platformValidator,
+    userContext: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ postId: Id<"competitor_posts">; stealId: Id<"aura_steals"> }> => {
+    const postId = await ctx.runAction(internal.analysis.scrapePostFromUrl, {
+      brandId: args.brandId,
+      url: args.url,
+    });
+    const stealId = await ctx.runAction(internal.analysis.analyzePostPipeline, {
+      postId,
+      riskLevel: args.riskLevel,
+      targetPlatform: args.targetPlatform,
+      userContext: args.userContext,
+    });
+    return { postId, stealId };
+  },
+});
+
 export const analyzePostPipeline = internalAction({
   args: {
     postId: v.id("competitor_posts"),
@@ -475,46 +541,13 @@ export const analyzeUrl = action({
       userId,
     });
 
-    const url = args.url.trim();
-    const riskLevel = requireIntegerRisk(args.riskLevel);
-    const sourcePlatform = detectPlatformFromUrl(url);
-    assertCompetitorPostUrl(url);
-    const postId = await ctx.runMutation(internal.analysis.beginScrape, {
+    return await ctx.runAction(internal.analysis.scrapeAndAnalyzeFromUrl, {
       brandId: args.brandId,
-      url,
-      platform: sourcePlatform,
+      url: args.url.trim(),
+      riskLevel: requireIntegerRisk(args.riskLevel),
+      targetPlatform: args.targetPlatform,
+      userContext: args.userContext,
     });
-
-    try {
-      const scraped = await scrapeCompetitorPost(url);
-      await ctx.runMutation(internal.analysis.markPost, {
-        postId,
-        status: "analyzing",
-        originalContent: scraped.originalContent,
-        authorHandle: scraped.authorHandle,
-        metrics: scraped.metrics,
-        topReplies: scraped.topReplies,
-        platform: scraped.platform,
-      });
-
-      const stealId = await ctx.runAction(internal.analysis.analyzePostPipeline, {
-        postId,
-        riskLevel,
-        targetPlatform: args.targetPlatform,
-        userContext: args.userContext,
-      });
-
-      return { postId, stealId };
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Analysis failed";
-      await ctx.runMutation(internal.analysis.markPost, {
-        postId,
-        status: "failed",
-        error: message,
-      });
-      throw error;
-    }
   },
 });
 

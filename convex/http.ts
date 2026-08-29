@@ -169,22 +169,100 @@ function parseIngestPayload(body: unknown):
   };
 }
 
+function requireIngestSecret(request: Request): Response | null {
+  const configuredSecret = process.env.INGEST_SECRET;
+  if (!configuredSecret || configuredSecret.length === 0) {
+    return jsonResponse(
+      { success: false, error: "Ingest endpoint is not configured" },
+      503,
+    );
+  }
+
+  const providedSecret = request.headers.get("X-Ingest-Secret");
+  if (providedSecret !== configuredSecret) {
+    return jsonResponse(
+      { success: false, error: "Unauthorized ingest request" },
+      401,
+    );
+  }
+
+  return null;
+}
+
+type ScrapeAnalyzePayload = {
+  brandId: string;
+  url: string;
+  riskLevel?: number;
+  targetPlatform?: "x" | "linkedin";
+  userContext?: string;
+};
+
+function parseScrapeAnalyzePayload(body: unknown):
+  | { ok: true; payload: ScrapeAnalyzePayload }
+  | { ok: false; error: string } {
+  if (body === null || typeof body !== "object") {
+    return { ok: false, error: "Request body must be a JSON object" };
+  }
+
+  const record = body as Record<string, unknown>;
+
+  if (typeof record.brandId !== "string" || record.brandId.length === 0) {
+    return { ok: false, error: "brandId must be a non-empty string" };
+  }
+  if (typeof record.url !== "string" || record.url.trim().length === 0) {
+    return { ok: false, error: "url must be a non-empty string" };
+  }
+
+  if (
+    record.riskLevel !== undefined &&
+    (typeof record.riskLevel !== "number" ||
+      !Number.isInteger(record.riskLevel) ||
+      record.riskLevel < 0 ||
+      record.riskLevel > 100)
+  ) {
+    return {
+      ok: false,
+      error: "riskLevel must be an integer between 0 and 100",
+    };
+  }
+
+  if (
+    record.targetPlatform !== undefined &&
+    record.targetPlatform !== "x" &&
+    record.targetPlatform !== "linkedin"
+  ) {
+    return { ok: false, error: 'targetPlatform must be "x" or "linkedin"' };
+  }
+
+  if (
+    record.userContext !== undefined &&
+    typeof record.userContext !== "string"
+  ) {
+    return { ok: false, error: "userContext must be a string" };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      brandId: record.brandId,
+      url: record.url,
+      riskLevel:
+        typeof record.riskLevel === "number" ? record.riskLevel : undefined,
+      targetPlatform:
+        record.targetPlatform === "x" || record.targetPlatform === "linkedin"
+          ? record.targetPlatform
+          : undefined,
+      userContext:
+        typeof record.userContext === "string" ? record.userContext : undefined,
+    },
+  };
+}
+
 const ingestPostHandler = httpAction(async (ctx, request) => {
   try {
-    const configuredSecret = process.env.INGEST_SECRET;
-    if (!configuredSecret || configuredSecret.length === 0) {
-      return jsonResponse(
-        { success: false, error: "Ingest endpoint is not configured" },
-        503,
-      );
-    }
-
-    const providedSecret = request.headers.get("X-Ingest-Secret");
-    if (providedSecret !== configuredSecret) {
-      return jsonResponse(
-        { success: false, error: "Unauthorized ingest request" },
-        401,
-      );
+    const authError = requireIngestSecret(request);
+    if (authError !== null) {
+      return authError;
     }
 
     let body: unknown;
@@ -245,6 +323,61 @@ const ingestPostHandler = httpAction(async (ctx, request) => {
   }
 });
 
+const scrapeAnalyzeUrlHandler = httpAction(async (ctx, request) => {
+  try {
+    const authError = requireIngestSecret(request);
+    if (authError !== null) {
+      return authError;
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return jsonResponse({ success: false, error: "Invalid JSON body" }, 400);
+    }
+
+    const parsed = parseScrapeAnalyzePayload(body);
+    if (!parsed.ok) {
+      return jsonResponse({ success: false, error: parsed.error }, 400);
+    }
+
+    const { brandId, url, riskLevel, targetPlatform, userContext } =
+      parsed.payload;
+
+    const resolvedTargetPlatform =
+      targetPlatform ??
+      (url.includes("linkedin.com") ? ("linkedin" as const) : ("x" as const));
+
+    const resolvedRiskLevel =
+      riskLevel ??
+      (await ctx.runQuery(internal.analysis.getDefaultRiskForPlatform, {
+        brandId: brandId as Id<"brands">,
+        platform: resolvedTargetPlatform,
+      }));
+
+    const result = await ctx.runAction(
+      internal.analysis.scrapeAndAnalyzeFromUrl,
+      {
+        brandId: brandId as Id<"brands">,
+        url,
+        riskLevel: resolvedRiskLevel,
+        targetPlatform: resolvedTargetPlatform,
+        userContext,
+      },
+    );
+
+    return jsonResponse(
+      { success: true, postId: result.postId, stealId: result.stealId },
+      200,
+    );
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unexpected scrape error";
+    return jsonResponse({ success: false, error: message }, 500);
+  }
+});
+
 http.route({
   path: "/api/ingest-post",
   method: "OPTIONS",
@@ -260,6 +393,23 @@ http.route({
   path: "/api/ingest-post",
   method: "POST",
   handler: ingestPostHandler,
+});
+
+http.route({
+  path: "/api/scrape-analyze-url",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: CORS_HEADERS,
+    });
+  }),
+});
+
+http.route({
+  path: "/api/scrape-analyze-url",
+  method: "POST",
+  handler: scrapeAnalyzeUrlHandler,
 });
 
 export default http;
