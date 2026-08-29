@@ -87,7 +87,7 @@ export const create = mutation({
       createdAt: Date.now(),
     });
 
-    for (const platform of ["x", "linkedin"] as const) {
+    for (const platform of ["x", "linkedin", "instagram"] as const) {
       await ctx.db.insert("brand_preferences", {
         brandId,
         ...defaultPreferenceFor(platform),

@@ -1,17 +1,20 @@
 "use client";
 
+import { BrandHeader } from "@/components/brands/BrandHeader";
+import { PlatformToggle } from "@/components/brands/PlatformToggle";
 import { RiskSlider } from "@/components/RiskSlider";
-import { analyzePath, composePath, isBrandDocumentId, preferencesPath } from "@/lib/routes";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import type { Platform } from "@/lib/platforms";
+import { composePath, isBrandDocumentId } from "@/lib/routes";
 import { ConvexError } from "convex/values";
 import { useAction, useQuery } from "convex/react";
-import { AlertCircle, ArrowRight, Loader2, Radar, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowRight, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { api } from "../../../../../convex/_generated/api";
 import type { Id } from "../../../../../convex/_generated/dataModel";
-
-type Platform = "x" | "linkedin";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ConvexError) {
@@ -33,6 +36,14 @@ function getErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Ocurrió un error inesperado al analizar el post.";
+}
+
+function CenteredMessage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center text-sm text-muted-foreground">
+      {children}
+    </div>
+  );
 }
 
 export default function AnalyzePage() {
@@ -82,13 +93,13 @@ export default function AnalyzePage() {
 
   if (!brandId) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black px-6 text-center text-zinc-300">
-        <AlertCircle className="text-red-300" size={28} />
+      <CenteredMessage>
+        <AlertCircle className="text-destructive" size={28} />
         <p>Marca no encontrada o sin acceso.</p>
-        <Link href="/" className="text-fuchsia-300 hover:underline">
+        <Link href="/" className="text-primary hover:underline">
           Volver al inicio
         </Link>
-      </div>
+      </CenteredMessage>
     );
   }
 
@@ -130,212 +141,161 @@ export default function AnalyzePage() {
 
   if (brand === undefined) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-black text-zinc-400">
+      <CenteredMessage>
         <Loader2 className="animate-spin" size={24} />
-      </div>
+      </CenteredMessage>
     );
   }
 
   if (brand === null) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black px-6 text-center text-zinc-300">
-        <AlertCircle className="text-red-300" size={28} />
+      <CenteredMessage>
+        <AlertCircle className="text-destructive" size={28} />
         <p>Marca no encontrada o sin acceso.</p>
-        <Link href="/" className="text-fuchsia-300 hover:underline">
+        <Link href="/" className="text-primary hover:underline">
           Volver al inicio
         </Link>
-      </div>
+      </CenteredMessage>
     );
   }
 
   return (
-    <div className="min-h-screen bg-black bg-[radial-gradient(circle_at_top,_rgba(217,70,239,0.08),_transparent_60%)] text-zinc-100">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-10">
-        <div className="flex items-center gap-2">
-          <Radar className="text-fuchsia-400" size={22} />
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">Vista 2 · Análisis</h1>
-            <p className="text-xs text-zinc-500">{brand.name}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link
-            href={preferencesPath(brandId)}
-            className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
-          >
-            Preferencias
-          </Link>
-          <Link
-            href="/"
-            className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
-          >
-            Dashboard
-          </Link>
-        </div>
-      </header>
+    <div className="min-h-dvh">
+      <BrandHeader brandId={brandId} brandName={brand.name} title="Analyze" />
 
-      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 pb-24">
-        <section className="rounded-2xl border border-zinc-800/80 bg-zinc-950/70 p-6 shadow-[0_0_40px_rgba(217,70,239,0.06)]">
-          <label className="block space-y-2">
-            <span className="text-xs uppercase tracking-[0.25em] text-fuchsia-400/70">
+      <main className="mx-auto flex max-w-2xl flex-col gap-4 px-3 py-8 sm:px-6 sm:py-12">
+        <div className="flex flex-col gap-4 border border-border p-4">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] tracking-[0.16em] text-muted-foreground">
               URL del post competidor
             </span>
-            <input
+            <Input
               type="url"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
               placeholder="https://x.com/competidor/status/123…"
               disabled={isProcessing}
-              className="w-full rounded-xl border border-zinc-800 bg-black px-4 py-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-fuchsia-500/60 disabled:opacity-60"
             />
           </label>
 
-          <div className="mt-5 flex gap-2">
-            {(["x", "linkedin"] as const).map((platform) => (
-              <button
-                key={platform}
-                type="button"
-                disabled={isProcessing}
-                onClick={() => {
-                  setTargetPlatform(platform);
-                  setRiskOverride(null);
-                }}
-                className={`rounded-full px-4 py-2 text-xs uppercase tracking-widest transition disabled:opacity-50 ${
-                  targetPlatform === platform
-                    ? "bg-fuchsia-500/20 text-fuchsia-200 ring-1 ring-fuchsia-400/40"
-                    : "bg-zinc-900 text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {platform === "x" ? "X" : "LinkedIn"}
-              </button>
-            ))}
-          </div>
+          <PlatformToggle
+            value={targetPlatform}
+            disabled={isProcessing}
+            onChange={(platform) => {
+              setTargetPlatform(platform);
+              setRiskOverride(null);
+            }}
+          />
 
-          <div className="mt-6">
-            <RiskSlider
-              value={riskLevel}
-              onChange={setRiskOverride}
-              disabled={isProcessing}
-            />
-          </div>
+          <RiskSlider
+            value={riskLevel}
+            onChange={setRiskOverride}
+            disabled={isProcessing}
+          />
 
-          <label className="mt-6 block space-y-2">
-            <span className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[11px] tracking-[0.16em] text-muted-foreground">
               Contexto opcional
             </span>
-            <input
+            <Input
               type="text"
               value={userContext}
               onChange={(event) => setUserContext(event.target.value)}
               placeholder="Una línea de contexto para el análisis…"
               disabled={isProcessing}
-              className="w-full rounded-xl border border-zinc-800 bg-black px-4 py-3 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-fuchsia-500/60 disabled:opacity-60"
             />
           </label>
 
           {requestError ? (
-            <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <div className="flex items-start gap-2 border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <span>{requestError}</span>
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={handleAnalyze}
-            disabled={isProcessing}
-            className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-fuchsia-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <Button onClick={handleAnalyze} disabled={isProcessing}>
             {isProcessing ? (
               <>
-                <Loader2 size={16} className="animate-spin" />
+                <Loader2 className="animate-spin" />
                 Analizando post…
               </>
             ) : (
               <>
-                <Sparkles size={16} />
+                <Sparkles />
                 Analizar Post
               </>
             )}
-          </button>
-        </section>
+          </Button>
+        </div>
 
         {isProcessing && analysis?.post ? (
-          <section className="rounded-2xl border border-fuchsia-500/20 bg-fuchsia-500/5 p-6">
-            <div className="flex items-center gap-3">
-              <Loader2 size={18} className="animate-spin text-fuchsia-300" />
-              <div>
-                <p className="font-medium text-fuchsia-100">
-                  {postStatus === "scraping"
-                    ? "Recopilando contenido del post…"
-                    : "Generando contranarrativa con Aura Score…"}
-                </p>
-                <p className="text-sm text-zinc-400">
-                  Estado en tiempo real vía Convex
-                </p>
-              </div>
+          <div className="flex items-center gap-3 border border-primary/30 bg-primary/5 p-4">
+            <Loader2 size={18} className="animate-spin text-primary" />
+            <div>
+              <p className="text-sm font-medium">
+                {postStatus === "scraping"
+                  ? "Recopilando contenido del post…"
+                  : "Generando contranarrativa con Aura Score…"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Estado en tiempo real vía Convex
+              </p>
             </div>
-          </section>
+          </div>
         ) : null}
 
         {isFailed && analysis?.post ? (
-          <section className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6">
-            <div className="flex items-start gap-2 text-red-200">
-              <AlertCircle size={18} className="mt-0.5 shrink-0" />
-              <div>
-                <p className="font-medium">El análisis falló</p>
-                <p className="mt-1 text-sm">
-                  {analysis.post.error ?? "No se pudo completar el pipeline."}
-                </p>
-              </div>
+          <div className="flex items-start gap-2 border border-destructive/30 bg-destructive/10 p-4 text-destructive">
+            <AlertCircle size={18} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium">El análisis falló</p>
+              <p className="mt-1 text-xs">
+                {analysis.post.error ?? "No se pudo completar el pipeline."}
+              </p>
             </div>
-          </section>
+          </div>
         ) : null}
 
         {isReady && analysis?.steal ? (
-          <section className="space-y-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/70 p-6">
+          <div className="flex flex-col gap-4 border border-border p-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-fuchsia-400/70">
+                <p className="text-[11px] tracking-[0.16em] text-muted-foreground">
                   Aura Opportunity Score
                 </p>
-                <p className="font-mono text-4xl font-bold text-fuchsia-300">
+                <p className="font-mono text-3xl font-medium text-primary">
                   {analysis.steal.auraOpportunityScore}
-                  <span className="text-lg text-zinc-500">/100</span>
+                  <span className="text-base text-muted-foreground">/100</span>
                 </p>
               </div>
-              <div className="rounded-full bg-fuchsia-500/10 px-3 py-1 text-xs uppercase tracking-widest text-fuchsia-200">
+              <span className="rounded-full bg-muted px-2.5 py-1 text-[10px] uppercase tracking-widest text-muted-foreground">
                 Riesgo {analysis.steal.riskLevel}
-              </div>
+              </span>
             </div>
 
-            <article className="rounded-xl border border-zinc-800 bg-black/60 p-4">
-              <h2 className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+            <article className="border border-border p-3">
+              <h2 className="text-[11px] tracking-[0.16em] text-muted-foreground">
                 Debilidad detectada
               </h2>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-200">
+              <p className="mt-2 text-sm leading-relaxed">
                 {analysis.steal.targetWeakness}
               </p>
             </article>
 
-            <article className="rounded-xl border border-zinc-800 bg-black/60 p-4">
-              <h2 className="text-xs uppercase tracking-[0.25em] text-zinc-500">
+            <article className="border border-border p-3">
+              <h2 className="text-[11px] tracking-[0.16em] text-muted-foreground">
                 Contranarrativa (borrador)
               </h2>
-              <p className="mt-2 text-sm leading-relaxed text-zinc-200">
+              <p className="mt-2 text-sm leading-relaxed">
                 {analysis.steal.generatedResponse}
               </p>
             </article>
 
-            <button
-              type="button"
-              onClick={handleApprove}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-fuchsia-400/40 bg-transparent px-5 py-3 text-sm font-semibold text-fuchsia-200 transition hover:bg-fuchsia-500/10"
-            >
+            <Button variant="outline" onClick={handleApprove}>
               Aprobar y Componer
-              <ArrowRight size={16} />
-            </button>
-          </section>
+              <ArrowRight />
+            </Button>
+          </div>
         ) : null}
       </main>
     </div>
