@@ -16,12 +16,38 @@ import {
 import { requireSteal } from "./stealAccess";
 
 export const getAssets = query({
-  args: { stealId: v.id("aura_steals") },
+  args: { stealId: v.string() },
   handler: async (ctx, args) => {
-    await requireSteal(ctx, args.stealId);
+    const empty = {
+      asset: null,
+      assets: [],
+      imageUrl: null,
+      audioUrl: null,
+      videoUrl: null,
+    };
+
+    const stealId = ctx.db.normalizeId("aura_steals", args.stealId);
+    if (stealId === null) {
+      return empty;
+    }
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return empty;
+    }
+
+    const steal = await ctx.db.get(stealId);
+    if (steal === null) {
+      return empty;
+    }
+
+    const brand = await ctx.db.get(steal.brandId);
+    if (brand === null || brand.userId !== identity.subject) {
+      return empty;
+    }
     const assets = await ctx.db
       .query("publication_assets")
-      .withIndex("by_steal", (q) => q.eq("stealId", args.stealId))
+      .withIndex("by_steal", (q) => q.eq("stealId", stealId))
       .order("desc")
       .collect();
 

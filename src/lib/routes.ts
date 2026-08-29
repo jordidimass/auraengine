@@ -30,6 +30,16 @@ export const DASHBOARD_PATH = "/";
 export function isBrandDocumentId(
   value: string | undefined,
 ): value is Id<"brands"> {
+  return looksLikeDocumentId(value);
+}
+
+export function isStealDocumentId(
+  value: string | undefined,
+): value is Id<"aura_steals"> {
+  return looksLikeDocumentId(value);
+}
+
+function looksLikeDocumentId(value: string | undefined): boolean {
   return (
     typeof value === "string" &&
     value !== DEMO_BRAND_ID &&

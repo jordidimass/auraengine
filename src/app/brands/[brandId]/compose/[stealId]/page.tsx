@@ -6,8 +6,8 @@ import { RiskSlider } from "@/components/RiskSlider";
 import { Button } from "@/components/ui/button";
 import { projectedAuraGain } from "@/lib/aura";
 import { platformLabel, type Platform } from "@/lib/platforms";
-import { analyzePath, isBrandDocumentId } from "@/lib/routes";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { analyzePath, isBrandDocumentId, isStealDocumentId } from "@/lib/routes";
+import { useAction, useMutation, useQuery, useConvexAuth } from "convex/react";
 import {
   ArrowLeft,
   Copy,
@@ -24,7 +24,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../../../convex/_generated/api";
-import type { Id } from "../../../../../../convex/_generated/dataModel";
 
 interface ComposeSuccessState {
   auraDelta: number;
@@ -159,15 +158,23 @@ function SocialPreviewCard({
 export default function ComposePage() {
   const params = useParams<{ brandId: string; stealId: string }>();
   const router = useRouter();
-  const brandId = params.brandId as Id<"brands">;
-  const stealId = params.stealId as Id<"aura_steals">;
+  const { isAuthenticated, isLoading: isAuthLoading } = useConvexAuth();
+  const brandId = isBrandDocumentId(params.brandId) ? params.brandId : null;
+  const stealId = isStealDocumentId(params.stealId) ? params.stealId : null;
+  const canQuery = isAuthenticated && stealId !== null;
 
-  const composeData = useQuery(api.analysis.getStealById, { stealId });
+  const composeData = useQuery(
+    api.analysis.getStealById,
+    canQuery ? { stealId } : "skip",
+  );
   const preferences = useQuery(
     api.preferences.getByBrand,
-    isBrandDocumentId(params.brandId) ? { brandId: params.brandId } : "skip",
+    isAuthenticated && brandId ? { brandId } : "skip",
   );
-  const assets = useQuery(api.assets.getAssets, { stealId });
+  const assets = useQuery(
+    api.assets.getAssets,
+    canQuery ? { stealId } : "skip",
+  );
 
   const regenerateCopy = useAction(api.analysis.regenerateCopy);
   const generateImage = useAction(api.assets.generateImage);
@@ -227,6 +234,9 @@ export default function ComposePage() {
       : preferences.find((item) => item.platform === previewPlatform);
 
   async function handleRegenerateCopy() {
+    if (stealId === null) {
+      return;
+    }
     setRequestError(null);
     setIsRegeneratingCopy(true);
     try {
@@ -239,6 +249,9 @@ export default function ComposePage() {
   }
 
   async function handleGenerateImage() {
+    if (stealId === null) {
+      return;
+    }
     setRequestError(null);
     setIsGeneratingImage(true);
     try {
@@ -251,6 +264,9 @@ export default function ComposePage() {
   }
 
   async function handleGenerateVideo() {
+    if (stealId === null) {
+      return;
+    }
     setRequestError(null);
     setIsGeneratingVideo(true);
     try {
@@ -267,7 +283,7 @@ export default function ComposePage() {
   }
 
   async function handlePublish() {
-    if (!copyText.trim()) {
+    if (!copyText.trim() || stealId === null || brandId === null) {
       setRequestError("El copy no puede estar vacío.");
       return;
     }
@@ -308,7 +324,7 @@ export default function ComposePage() {
     }
   }
 
-  if (composeData === undefined) {
+  if (isAuthLoading || (canQuery && composeData === undefined)) {
     return (
       <CenteredMessage>
         <Loader2 className="animate-spin" size={24} />
@@ -316,11 +332,19 @@ export default function ComposePage() {
     );
   }
 
-  if (composeData === null) {
+  if (
+    brandId === null ||
+    stealId === null ||
+    composeData === null ||
+    !isAuthenticated
+  ) {
     return (
       <CenteredMessage>
         <p>Steal no encontrado o sin acceso.</p>
-        <Link href={analyzePath(brandId)} className="text-primary hover:underline">
+        <Link
+          href={brandId ? analyzePath(brandId) : "/"}
+          className="text-primary hover:underline"
+        >
           Volver al análisis
         </Link>
       </CenteredMessage>
