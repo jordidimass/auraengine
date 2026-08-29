@@ -359,8 +359,22 @@ async function storeFromUrl(
   );
 }
 
+function convexGenerationError(error: unknown, fallback: string) {
+  if (error instanceof ConvexError) {
+    return error;
+  }
+  const message =
+    error instanceof Error && error.message.length > 0
+      ? error.message
+      : fallback;
+  return new ConvexError({
+    code: "GENERATION_FAILED",
+    message,
+  });
+}
+
 async function generateFalImage(prompt: string): Promise<string> {
-  const key = process.env.FAL_KEY;
+  const key = process.env.FAL_KEY?.trim();
   if (!key) {
     throw new ConvexError({
       code: "MISSING_FAL_KEY",
@@ -396,6 +410,69 @@ async function generateFalImage(prompt: string): Promise<string> {
   return url;
 }
 
+async function generateOpenAiImage(prompt: string): Promise<string> {
+  const key = process.env.OPENAI_API_KEY?.trim();
+  if (!key) {
+    throw new ConvexError({
+      code: "MISSING_OPENAI_KEY",
+      message: "OPENAI_API_KEY is not set in the Convex dashboard",
+    });
+  }
+
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "dall-e-3",
+      prompt: prompt.slice(0, 3900),
+      size: "1024x1024",
+      n: 1,
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new ConvexError({
+      code: "OPENAI_IMAGE_FAILED",
+      message: `OpenAI image failed (${response.status}): ${detail.slice(0, 300)}`,
+    });
+  }
+  const body = (await response.json()) as {
+    data?: Array<{ url?: string }>;
+  };
+  const url = body.data?.[0]?.url;
+  if (!url) {
+    throw new ConvexError({
+      code: "OPENAI_IMAGE_FAILED",
+      message: "OpenAI returned no image URL",
+    });
+  }
+  return url;
+}
+
+async function generateImageUrl(prompt: string): Promise<string> {
+  try {
+    return await generateFalImage(prompt);
+  } catch (falError) {
+    console.error(
+      "fal.ai image failed, trying OpenAI",
+      falError instanceof Error ? falError.message : falError,
+    );
+    try {
+      return await generateOpenAiImage(prompt);
+    } catch (openAiError) {
+      const falMessage = publicErrorMessage(falError, "fal.ai failed");
+      const openAiMessage = publicErrorMessage(openAiError, "OpenAI failed");
+      throw new ConvexError({
+        code: "IMAGE_GENERATION_FAILED",
+        message: `${falMessage} | ${openAiMessage}`.slice(0, 400),
+      });
+    }
+  }
+}
+
 const FAL_VIDEO_MODEL_DEFAULT = "lightricks/ltx-2.5/text-to-video/fast";
 const FAL_VIDEO_RESOLUTION = "1080p";
 const FAL_VIDEO_FPS = 24;
@@ -407,7 +484,7 @@ async function generateFalVideo(
   duration: 6 | 10,
   aspectRatio: "16:9" | "9:16" | "1:1",
 ): Promise<string> {
-  const key = process.env.FAL_KEY;
+  const key = process.env.FAL_KEY?.trim();
   if (!key) {
     throw new ConvexError({
       code: "MISSING_FAL_KEY",
@@ -415,7 +492,7 @@ async function generateFalVideo(
     });
   }
 
-  const model = process.env.FAL_VIDEO_MODEL ?? FAL_VIDEO_MODEL_DEFAULT;
+  const model = process.env.FAL_VIDEO_MODEL?.trim() || FAL_VIDEO_MODEL_DEFAULT;
   if (!/^[a-z0-9][a-z0-9._/-]*$/i.test(model)) {
     throw new ConvexError({
       code: "INVALID_FAL_VIDEO_MODEL",
@@ -558,6 +635,7 @@ async function generateElevenLabsAudio(text: string): Promise<ArrayBuffer> {
 
 export const generateImage = action({
   args: { stealId: v.id("aura_steals") },
+  returns: v.id("publication_assets"),
   handler: async (ctx, args): Promise<Id<"publication_assets">> => {
     const userId = await requireUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyStealOwner, {
@@ -570,7 +648,7 @@ export const generateImage = action({
       kind: "image",
     });
     try {
-      const imageUrl = await generateFalImage(prepared.visualPrompt);
+      const imageUrl = await generateImageUrl(prepared.visualPrompt);
       const storageId = await storeFromUrl(ctx, imageUrl, "image/jpeg");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
@@ -579,13 +657,13 @@ export const generateImage = action({
       });
       return prepared.assetId;
     } catch (error) {
-      const message = publicErrorMessage(error, "Image generation failed");
+      const convexError = convexGenerationError(error, "Image generation failed");
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "image",
-        error: message,
+        error: publicErrorMessage(convexError, "Image generation failed"),
       });
-      throw error;
+      throw convexError;
     }
   },
 });

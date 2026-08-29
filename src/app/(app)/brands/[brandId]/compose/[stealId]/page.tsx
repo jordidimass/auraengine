@@ -30,7 +30,33 @@ interface ComposeSuccessState {
 }
 
 function getErrorMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "data" in error) {
+    const data = (error as { data: unknown }).data;
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "message" in data &&
+      typeof data.message === "string" &&
+      data.message.length > 0
+    ) {
+      return data.message;
+    }
+    if (typeof data === "string" && data.length > 0) {
+      return data;
+    }
+  }
   if (error instanceof Error) {
+    const encoded = error.message.match(/Uncaught ConvexError: ({[\s\S]*})/);
+    if (encoded?.[1]) {
+      try {
+        const parsed = JSON.parse(encoded[1]) as { message?: string };
+        if (parsed.message) {
+          return parsed.message;
+        }
+      } catch {
+        // keep the Convex wrapper message
+      }
+    }
     return error.message;
   }
   return "Ocurrió un error inesperado.";
@@ -401,7 +427,7 @@ export default function ComposePage() {
       </div>
 
       <main className="mx-auto grid max-w-5xl gap-4 px-3 py-8 pb-32 sm:px-6 sm:py-12 sm:pb-32 lg:grid-cols-2">
-        <section className="flex flex-col gap-4 border border-border p-4">
+        <section className="flex min-w-0 flex-col gap-4 border border-border p-4">
           <div>
             <p className="text-[11px] tracking-[0.16em] text-muted-foreground">
               Copy & Riesgo
@@ -435,7 +461,7 @@ export default function ComposePage() {
             </p>
           ) : null}
 
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col flex-wrap gap-3 sm:flex-row">
             <Button
               variant="outline"
               className="flex-1"
@@ -492,7 +518,7 @@ export default function ComposePage() {
           ) : null}
         </section>
 
-        <section className="flex flex-col gap-4">
+        <section className="flex min-w-0 flex-col gap-4">
           <PlatformToggle value={previewPlatform} onChange={setPreviewPlatform} />
 
           <SocialPreviewCard
