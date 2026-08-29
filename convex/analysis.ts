@@ -20,7 +20,7 @@ import {
   platformValidator,
 } from "./domain";
 import { runLlmAnalysis } from "./lib/llm";
-import { assertCompetitorPostUrl, scrapeCompetitorPost } from "./lib/scrape";
+import { assertCompetitorPostUrl, normalizeCompetitorUrl, scrapeCompetitorPost } from "./lib/scrape";
 import { detectPlatformFromUrl, requireIntegerRisk } from "./lib/risk";
 import { requireSteal } from "./stealAccess";
 
@@ -375,6 +375,72 @@ export const getStealInternal = internalQuery({
   },
 });
 
+export const scrapePostFromUrl = internalAction({
+  args: {
+    brandId: v.id("brands"),
+    url: v.string(),
+  },
+  handler: async (ctx, args): Promise<Id<"competitor_posts">> => {
+    const url = normalizeCompetitorUrl(args.url.trim());
+    const platform = detectPlatformFromUrl(url);
+    assertCompetitorPostUrl(url);
+    const postId = await ctx.runMutation(internal.analysis.beginScrape, {
+      brandId: args.brandId,
+      url,
+      platform,
+    });
+
+    try {
+      const scraped = await scrapeCompetitorPost(url);
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId,
+        status: "analyzing",
+        originalContent: scraped.originalContent,
+        authorHandle: scraped.authorHandle,
+        metrics: scraped.metrics,
+        topReplies: scraped.topReplies,
+        platform: scraped.platform,
+      });
+      return postId;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Scrape failed";
+      await ctx.runMutation(internal.analysis.markPost, {
+        postId,
+        status: "failed",
+        error: message,
+      });
+      throw error;
+    }
+  },
+});
+
+export const scrapeAndAnalyzeFromUrl = internalAction({
+  args: {
+    brandId: v.id("brands"),
+    url: v.string(),
+    riskLevel: v.number(),
+    targetPlatform: platformValidator,
+    userContext: v.optional(v.string()),
+  },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ postId: Id<"competitor_posts">; stealId: Id<"aura_steals"> }> => {
+    const postId = await ctx.runAction(internal.analysis.scrapePostFromUrl, {
+      brandId: args.brandId,
+      url: args.url,
+    });
+    const stealId = await ctx.runAction(internal.analysis.analyzePostPipeline, {
+      postId,
+      riskLevel: args.riskLevel,
+      targetPlatform: args.targetPlatform,
+      userContext: args.userContext,
+    });
+    return { postId, stealId };
+  },
+});
+
 export const analyzePostPipeline = internalAction({
   args: {
     postId: v.id("competitor_posts"),
@@ -382,7 +448,7 @@ export const analyzePostPipeline = internalAction({
     targetPlatform: platformValidator,
     userContext: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<Id<"aura_steals">> => {
     const riskLevel = requireIntegerRisk(args.riskLevel);
 
     try {
@@ -433,7 +499,7 @@ export const analyzePostPipeline = internalAction({
         useHashtags: packed.preferences.useHashtags,
       });
 
-      await ctx.runMutation(internal.analysis.saveStealInternal, {
+      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
         postId: args.postId,
         riskLevel,
         userContext: args.userContext,
@@ -443,6 +509,7 @@ export const analyzePostPipeline = internalAction({
         targetPlatform: args.targetPlatform,
         visualPrompt: analysis.visualPrompt,
       });
+      return stealId;
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Analysis pipeline failed";
@@ -474,82 +541,13 @@ export const analyzeUrl = action({
       userId,
     });
 
-    const url = args.url.trim();
-    const riskLevel = requireIntegerRisk(args.riskLevel);
-    const sourcePlatform = detectPlatformFromUrl(url);
-    assertCompetitorPostUrl(url);
-    const postId = await ctx.runMutation(internal.analysis.beginScrape, {
+    return await ctx.runAction(internal.analysis.scrapeAndAnalyzeFromUrl, {
       brandId: args.brandId,
-      url,
-      platform: sourcePlatform,
+      url: args.url.trim(),
+      riskLevel: requireIntegerRisk(args.riskLevel),
+      targetPlatform: args.targetPlatform,
+      userContext: args.userContext,
     });
-
-    try {
-      const scraped = await scrapeCompetitorPost(url);
-      await ctx.runMutation(internal.analysis.markPost, {
-        postId,
-        status: "analyzing",
-        originalContent: scraped.originalContent,
-        authorHandle: scraped.authorHandle,
-        metrics: scraped.metrics,
-        topReplies: scraped.topReplies,
-        platform: scraped.platform,
-      });
-
-      const packed = await ctx.runQuery(internal.analysis.loadAnalysisContext, {
-        brandId: args.brandId,
-        postId,
-        targetPlatform: args.targetPlatform,
-      });
-      if (packed.post === null || packed.preferences === null) {
-        throw new ConvexError({
-          code: "POST_NOT_FOUND",
-          message: "Post disappeared during analysis",
-        });
-      }
-
-      const analysis = await runLlmAnalysis({
-        brandName: packed.brand.name,
-        industry: packed.brand.industry,
-        description: packed.brand.description,
-        tone: packed.preferences.tone,
-        bannedPhrases: packed.preferences.bannedPhrases,
-        bannedTopics: packed.preferences.bannedTopics,
-        customInstructions: packed.preferences.customInstructions,
-        riskLevel,
-        platform: args.targetPlatform,
-        originalContent: packed.post.originalContent,
-        authorHandle: packed.post.authorHandle,
-        metrics: packed.post.metrics,
-        topReplies: packed.post.topReplies,
-        userContext: args.userContext,
-        maxLength: packed.preferences.maxLength,
-        useEmojis: packed.preferences.useEmojis,
-        useHashtags: packed.preferences.useHashtags,
-      });
-
-      const stealId = await ctx.runMutation(internal.analysis.saveStealInternal, {
-        postId,
-        riskLevel,
-        userContext: args.userContext,
-        score: analysis.auraScore,
-        weakness: analysis.weakness,
-        response: analysis.response,
-        targetPlatform: args.targetPlatform,
-        visualPrompt: analysis.visualPrompt,
-      });
-
-      return { postId, stealId };
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Analysis failed";
-      await ctx.runMutation(internal.analysis.markPost, {
-        postId,
-        status: "failed",
-        error: message,
-      });
-      throw error;
-    }
   },
 });
 
