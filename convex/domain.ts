@@ -13,6 +13,14 @@ export const toneValidator = v.union(
   v.literal("casual"),
 );
 
+export const designTokensValidator = v.object({
+  primaryColor: v.string(),
+  secondaryColor: v.string(),
+  backgroundColor: v.optional(v.string()),
+  fontFamily: v.optional(v.string()),
+  visualStyle: v.optional(v.string()),
+});
+
 export const competitorPostStatusValidator = v.union(
   v.literal("scraping"),
   v.literal("analyzing"),

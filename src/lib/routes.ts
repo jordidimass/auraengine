@@ -16,6 +16,12 @@ export function preferencesPath(
   return `/brands/${brandId}/preferences`;
 }
 
+export function historyPath(
+  brandId: Id<"brands"> | string = DEMO_BRAND_ID,
+) {
+  return `/brands/${brandId}/history`;
+}
+
 export function composePath(
   brandId: Id<"brands"> | string,
   stealId: Id<"aura_steals"> | string,

@@ -6,6 +6,7 @@ import { defaultPreferenceFor } from "./brandDefaults";
 import {
   assertHttpUrl,
   assertNonEmpty,
+  designTokensValidator,
   normalizeOptionalText,
 } from "./domain";
 
@@ -106,13 +107,19 @@ export const update = mutation({
     industry: nullableOptionalString,
     description: v.optional(v.string()),
     logoUrl: nullableOptionalString,
+    designTokens: v.optional(designTokensValidator),
   },
   handler: async (ctx, args) => {
     await requireBrandOwner(ctx, args.brandId);
     const updates: Partial<
       Pick<
         Doc<"brands">,
-        "name" | "website" | "industry" | "description" | "logoUrl"
+        | "name"
+        | "website"
+        | "industry"
+        | "description"
+        | "logoUrl"
+        | "designTokens"
       >
     > = {};
 
@@ -138,6 +145,15 @@ export const update = mutation({
       if (updates.logoUrl !== undefined) {
         assertHttpUrl(updates.logoUrl, "logoUrl");
       }
+    }
+    if (args.designTokens !== undefined) {
+      updates.designTokens = {
+        primaryColor: args.designTokens.primaryColor.trim(),
+        secondaryColor: args.designTokens.secondaryColor.trim(),
+        backgroundColor: normalizeOptionalText(args.designTokens.backgroundColor),
+        fontFamily: normalizeOptionalText(args.designTokens.fontFamily),
+        visualStyle: normalizeOptionalText(args.designTokens.visualStyle),
+      };
     }
 
     if (Object.keys(updates).length === 0) {

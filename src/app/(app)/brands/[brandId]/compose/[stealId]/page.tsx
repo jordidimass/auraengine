@@ -23,8 +23,7 @@ import {
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { api } from "../../../../../../convex/_generated/api";
-import type { Id } from "../../../../../../convex/_generated/dataModel";
+import { api, type Id } from "@/lib/convex";
 
 interface ComposeSuccessState {
   auraDelta: number;

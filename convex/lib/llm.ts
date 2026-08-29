@@ -9,7 +9,7 @@ export type AnalysisJson = {
   visualPrompt: string;
 };
 
-type AnalysisInput = {
+export type AnalysisInput = {
   brandName: string;
   industry?: string;
   description: string;
@@ -27,6 +27,14 @@ type AnalysisInput = {
   maxLength: number;
   useEmojis: boolean;
   useHashtags: boolean;
+  logoUrl?: string;
+  designTokens?: {
+    primaryColor: string;
+    secondaryColor: string;
+    backgroundColor?: string;
+    fontFamily?: string;
+    visualStyle?: string;
+  };
 };
 
 type LlmProvider = {
@@ -93,6 +101,14 @@ export function buildAnalysisPrompt(input: AnalysisInput): string {
   emojis: ${input.useEmojis ? "sí" : "no"}
   hashtags: ${input.useHashtags ? "sí" : "no"}
 
+TOKENS DE DISEÑO
+  color primario: ${input.designTokens?.primaryColor ?? "n/a"}
+  color secundario: ${input.designTokens?.secondaryColor ?? "n/a"}
+  color de fondo: ${input.designTokens?.backgroundColor ?? "n/a"}
+  tipografía: ${input.designTokens?.fontFamily ?? "n/a"}
+  estilo visual: ${input.designTokens?.visualStyle ?? "n/a"}
+  logo: ${input.logoUrl ?? "n/a"}
+
 NIVEL DE RIESGO: ${input.riskLevel}/100
   registro: ${register}
   0-25 diplomático · 26-50 educativo · 51-75 directo · 76-100 roast
@@ -110,7 +126,7 @@ DEVUELVE JSON
   { "weakness": string, "auraScore": number, "response": string, "visualPrompt": string }
 
 auraScore es 0-100. response debe respetar maxLength y el registro de riesgo.
-visualPrompt describe un plano listo para fal.ai (imagen o clip de ~5s), coherente con el copy, con movimiento de cámara sutil y sin texto en pantalla.`;
+visualPrompt describe un plano listo para fal.ai (imagen o clip de ~5s), coherente con el copy y con los tokens de diseño (colores, tipografía, estilo, logo), con movimiento de cámara sutil y sin texto en pantalla.`;
 }
 
 function parseAnalysis(raw: string): AnalysisJson {

@@ -13,8 +13,7 @@ import { AlertCircle, ArrowRight, Loader2, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { api } from "../../../../../convex/_generated/api";
-import type { Id } from "../../../../../convex/_generated/dataModel";
+import { api, type Id } from "@/lib/convex";
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof ConvexError) {
