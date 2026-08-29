@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { AuthControls } from "@/components/auth/AuthControls";
@@ -84,7 +84,11 @@ function Hero() {
 }
 
 function BrandList() {
-  const brands = useQuery(api.brands.listMine);
+  const { isAuthenticated, isLoading } = useConvexAuth();
+  const brands = useQuery(
+    api.brands.listMine,
+    isAuthenticated ? {} : "skip",
+  );
 
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-3 py-8 sm:px-6 sm:py-12">
@@ -97,7 +101,7 @@ function BrandList() {
         </h1>
       </div>
 
-      {brands === undefined ? (
+      {isLoading || brands === undefined ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 size={16} className="animate-spin" />
           Loading brands…

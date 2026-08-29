@@ -12,12 +12,23 @@ import {
 } from "./domain";
 
 export const getByBrand = query({
-  args: { brandId: v.id("brands") },
+  args: { brandId: v.string() },
   handler: async (ctx, args) => {
-    await requireBrandOwner(ctx, args.brandId);
+    const brandId = ctx.db.normalizeId("brands", args.brandId);
+    if (brandId === null) {
+      return [];
+    }
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity === null) {
+      return [];
+    }
+    const brand = await ctx.db.get(brandId);
+    if (brand === null || brand.userId !== identity.subject) {
+      return [];
+    }
     const preferences = await ctx.db
       .query("brand_preferences")
-      .withIndex("by_brand", (q) => q.eq("brandId", args.brandId))
+      .withIndex("by_brand", (q) => q.eq("brandId", brandId))
       .collect();
     return preferences.sort((a, b) =>
       a.platform.localeCompare(b.platform),
