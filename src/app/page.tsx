@@ -5,8 +5,8 @@ import { Radar } from "lucide-react";
 import { AuraCounter } from "@/components/AuraCounter";
 import { PostCard, type CompetitorSteal } from "@/components/PostCard";
 
-// Mock feed until `npx convex dev` is run and this is swapped for
-// useQuery(api.posts.listPendingSteals).
+// Mock feed until Hugo wires:
+// useAction(api.analysis.analyzeUrl) + useQuery(api.analysis.getPost)
 const MOCK_FEED: CompetitorSteal[] = [
   {
     id: "1",
