@@ -11,7 +11,7 @@ para que Cursor genere alineado en las cinco máquinas.
 |---|---|---|
 | **Jordi** | Sistema de diseño | `components/ui/*`, tokens, paleta, `AuraCounter`, `RiskSlider` |
 | **Josue** | Database | `convex/schema.ts`, queries y mutations, índices |
-| **Deyane** | Conexiones | Apify, Exa, fal.ai, ElevenLabs, LLM — todas las actions externas |
+| **Deyane** | Conexiones | Apify, Exa, fal.ai, ElevenLabs, OpenRouter/OpenAI — todas las actions externas |
 | **Hugo** | Harness | Cableado end to end, estado de la app, rutas, integración |
 | **Hector** | Harness | Cableado end to end, pruebas de flujo completo, demo |
 

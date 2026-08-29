@@ -29,6 +29,55 @@ type AnalysisInput = {
   useHashtags: boolean;
 };
 
+type LlmProvider = {
+  name: "OpenRouter" | "OpenAI";
+  errorCode: "OPENROUTER_FAILED" | "OPENAI_FAILED";
+  endpoint: string;
+  model: string;
+  headers: Record<string, string>;
+};
+
+function resolveLlmProvider(): LlmProvider {
+  const openRouterApiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (openRouterApiKey) {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${openRouterApiKey}`,
+      "Content-Type": "application/json",
+      "X-OpenRouter-Title": "Aura Engine",
+    };
+    const siteUrl = process.env.SITE_URL?.trim();
+    if (siteUrl) headers["HTTP-Referer"] = siteUrl;
+
+    return {
+      name: "OpenRouter",
+      errorCode: "OPENROUTER_FAILED",
+      endpoint: "https://openrouter.ai/api/v1/chat/completions",
+      model: process.env.OPENROUTER_MODEL?.trim() || "openai/gpt-4o",
+      headers,
+    };
+  }
+
+  const openAiApiKey = process.env.OPENAI_API_KEY?.trim();
+  if (openAiApiKey) {
+    return {
+      name: "OpenAI",
+      errorCode: "OPENAI_FAILED",
+      endpoint: "https://api.openai.com/v1/chat/completions",
+      model: "gpt-4o",
+      headers: {
+        Authorization: `Bearer ${openAiApiKey}`,
+        "Content-Type": "application/json",
+      },
+    };
+  }
+
+  throw new ConvexError({
+    code: "MISSING_LLM_KEY",
+    message:
+      "Set OPENROUTER_API_KEY (preferred) or OPENAI_API_KEY in the Convex dashboard",
+  });
+}
+
 export function buildAnalysisPrompt(input: AnalysisInput): string {
   const register = riskRegister(input.riskLevel);
   return `CONTEXTO DE MARCA
@@ -87,22 +136,13 @@ function parseAnalysis(raw: string): AnalysisJson {
 export async function runLlmAnalysis(
   input: AnalysisInput,
 ): Promise<AnalysisJson> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new ConvexError({
-      code: "MISSING_OPENAI_KEY",
-      message: "OPENAI_API_KEY is not set in the Convex dashboard",
-    });
-  }
+  const provider = resolveLlmProvider();
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await fetch(provider.endpoint, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: provider.headers,
     body: JSON.stringify({
-      model: "gpt-4o",
+      model: provider.model,
       temperature: 0.7,
       response_format: { type: "json_object" },
       messages: [
@@ -119,8 +159,8 @@ export async function runLlmAnalysis(
   if (!response.ok) {
     const detail = await response.text();
     throw new ConvexError({
-      code: "OPENAI_FAILED",
-      message: `OpenAI failed (${response.status}): ${detail.slice(0, 300)}`,
+      code: provider.errorCode,
+      message: `${provider.name} failed (${response.status}): ${detail.slice(0, 300)}`,
     });
   }
 
@@ -130,8 +170,8 @@ export async function runLlmAnalysis(
   const content = body.choices?.[0]?.message?.content;
   if (!content) {
     throw new ConvexError({
-      code: "OPENAI_FAILED",
-      message: "OpenAI returned an empty analysis",
+      code: provider.errorCode,
+      message: `${provider.name} returned an empty analysis`,
     });
   }
   return parseAnalysis(content);
