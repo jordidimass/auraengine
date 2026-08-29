@@ -604,7 +604,10 @@ export const analyzeUrl = action({
   returns: v.object({
     postId: v.id("competitor_posts"),
   }),
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ postId: Id<"competitor_posts"> }> => {
     const userId = await requireUserId(ctx);
     await ctx.runQuery(internal.analysis.verifyBrandOwner, {
       brandId: args.brandId,
