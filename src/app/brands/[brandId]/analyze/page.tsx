@@ -1,6 +1,7 @@
 "use client";
 
 import { RiskSlider } from "@/components/RiskSlider";
+import { composePath, preferencesPath } from "@/lib/routes";
 import { useAction, useQuery } from "convex/react";
 import { AlertCircle, ArrowRight, Loader2, Radar, Sparkles } from "lucide-react";
 import Link from "next/link";
@@ -89,7 +90,27 @@ export default function AnalyzePage() {
     if (!analysis?.steal) {
       return;
     }
-    router.push(`/brands/${brandId}/compose/${analysis.steal._id}`);
+    router.push(composePath(brandId, analysis.steal._id));
+  }
+
+  if (brand === undefined) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black text-zinc-400">
+        <Loader2 className="animate-spin" size={24} />
+      </div>
+    );
+  }
+
+  if (brand === null) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black px-6 text-center text-zinc-300">
+        <AlertCircle className="text-red-300" size={28} />
+        <p>Marca no encontrada o sin acceso.</p>
+        <Link href="/" className="text-fuchsia-300 hover:underline">
+          Volver al inicio
+        </Link>
+      </div>
+    );
   }
 
   return (
@@ -99,21 +120,23 @@ export default function AnalyzePage() {
           <Radar className="text-fuchsia-400" size={22} />
           <div>
             <h1 className="text-xl font-bold tracking-tight">Vista 2 · Análisis</h1>
-            <p className="text-xs text-zinc-500">
-              {brand === undefined
-                ? "Cargando marca…"
-                : brand === null
-                  ? "Marca no encontrada"
-                  : brand.name}
-            </p>
+            <p className="text-xs text-zinc-500">{brand.name}</p>
           </div>
         </div>
-        <Link
-          href="/"
-          className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
-        >
-          Dashboard
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href={preferencesPath(brandId)}
+            className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
+          >
+            Preferencias
+          </Link>
+          <Link
+            href="/"
+            className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
+          >
+            Dashboard
+          </Link>
+        </div>
       </header>
 
       <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 pb-24">
@@ -185,7 +208,7 @@ export default function AnalyzePage() {
           <button
             type="button"
             onClick={handleAnalyze}
-            disabled={isProcessing || brand === null}
+            disabled={isProcessing}
             className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-fuchsia-500 px-5 py-3 text-sm font-semibold text-black transition hover:bg-fuchsia-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isProcessing ? (

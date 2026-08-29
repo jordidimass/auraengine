@@ -1,12 +1,14 @@
 "use client";
 
+import { useQuery } from "convex/react";
+import { Loader2, Radar } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
-import { Radar } from "lucide-react";
 import { AuraCounter } from "@/components/AuraCounter";
 import { PostCard, type CompetitorSteal } from "@/components/PostCard";
+import { analyzePath, preferencesPath } from "@/lib/routes";
+import { api } from "../../convex/_generated/api";
 
-// Mock feed until `npx convex dev` is run and this is swapped for
-// useQuery(api.posts.listPendingSteals).
 const MOCK_FEED: CompetitorSteal[] = [
   {
     id: "1",
@@ -37,6 +39,7 @@ const MOCK_FEED: CompetitorSteal[] = [
 ];
 
 export default function Home() {
+  const brands = useQuery(api.brands.listMine);
   const [feed, setFeed] = useState(MOCK_FEED);
 
   const totalAura = feed
@@ -61,10 +64,59 @@ export default function Home() {
         <AuraCounter value={totalAura} />
       </header>
 
-      <main className="mx-auto flex max-w-3xl flex-col gap-4 px-6 pb-24">
-        {feed.map((post) => (
-          <PostCard key={post.id} post={post} onSteal={stealAura} />
-        ))}
+      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-6 pb-24">
+        <section className="rounded-2xl border border-zinc-800/80 bg-zinc-950/70 p-6">
+          <h2 className="text-sm uppercase tracking-[0.25em] text-fuchsia-400/70">
+            Tus marcas
+          </h2>
+          {brands === undefined ? (
+            <div className="mt-4 flex items-center gap-2 text-sm text-zinc-500">
+              <Loader2 size={16} className="animate-spin" />
+              Cargando marcas…
+            </div>
+          ) : brands.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500">
+              Inicia sesión y crea una marca en Convex para abrir Vista 1–3.
+            </p>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {brands.map((brand) => (
+                <li
+                  key={brand._id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-black/50 px-4 py-3"
+                >
+                  <div>
+                    <p className="font-medium text-zinc-100">{brand.name}</p>
+                    <p className="text-xs text-zinc-500">{brand.description}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Link
+                      href={preferencesPath(brand._id)}
+                      className="rounded-full border border-zinc-700 px-3 py-1 text-xs uppercase tracking-widest text-zinc-400 transition hover:border-fuchsia-500/40 hover:text-fuchsia-200"
+                    >
+                      Preferencias
+                    </Link>
+                    <Link
+                      href={analyzePath(brand._id)}
+                      className="rounded-full bg-fuchsia-500/20 px-3 py-1 text-xs uppercase tracking-widest text-fuchsia-200 transition hover:bg-fuchsia-500/30"
+                    >
+                      Analizar
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="space-y-4">
+          <p className="text-xs uppercase tracking-[0.25em] text-zinc-600">
+            Demo feed (local mock)
+          </p>
+          {feed.map((post) => (
+            <PostCard key={post.id} post={post} onSteal={stealAura} />
+          ))}
+        </section>
       </main>
     </div>
   );

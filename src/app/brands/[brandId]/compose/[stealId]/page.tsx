@@ -1,6 +1,8 @@
 "use client";
 
 import { RiskSlider } from "@/components/RiskSlider";
+import { projectedAuraGain } from "@/lib/aura";
+import { analyzePath, preferencesPath } from "@/lib/routes";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
@@ -23,10 +25,6 @@ type Platform = "x" | "linkedin";
 
 interface ComposeSuccessState {
   auraDelta: number;
-}
-
-function projectedAuraGain(auraOpportunityScore: number): number {
-  return Math.round(auraOpportunityScore * 100);
 }
 
 function getErrorMessage(error: unknown): string {
@@ -195,9 +193,10 @@ export default function ComposePage() {
       : 0;
 
   const assetGenerating = assets?.asset?.status === "generating";
-  const activePreference = preferences?.find(
-    (item) => item.platform === previewPlatform,
-  );
+  const activePreference =
+    preferences === undefined
+      ? undefined
+      : preferences.find((item) => item.platform === previewPlatform);
 
   async function handleRegenerateCopy() {
     setRequestError(null);
@@ -241,7 +240,7 @@ export default function ComposePage() {
       });
       setSuccessState({ auraDelta: result.auraDelta });
       window.setTimeout(() => {
-        router.push(`/brands/${brandId}/analyze`);
+        router.push(analyzePath(brandId));
       }, 2600);
     } catch (error) {
       setRequestError(getErrorMessage(error));
@@ -273,7 +272,7 @@ export default function ComposePage() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-black text-zinc-300">
         <p>Steal no encontrado o sin acceso.</p>
         <Link
-          href={`/brands/${brandId}/analyze`}
+          href={analyzePath(brandId)}
           className="text-fuchsia-300 hover:underline"
         >
           Volver al análisis
@@ -308,11 +307,17 @@ export default function ComposePage() {
       <header className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-8">
         <div className="flex items-center gap-4">
           <Link
-            href={`/brands/${brandId}/analyze`}
+            href={analyzePath(brandId)}
             className="inline-flex items-center gap-2 text-sm text-zinc-500 transition hover:text-fuchsia-300"
           >
             <ArrowLeft size={16} />
             Volver a Análisis
+          </Link>
+          <Link
+            href={preferencesPath(brandId)}
+            className="text-xs uppercase tracking-widest text-zinc-500 transition hover:text-fuchsia-300"
+          >
+            Preferencias
           </Link>
           <div>
             <h1 className="text-xl font-bold tracking-tight">
