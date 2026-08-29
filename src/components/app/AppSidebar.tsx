@@ -111,13 +111,11 @@ export function AppSidebar() {
                 <span className="flex size-8 items-center justify-center rounded-md bg-primary text-xs font-semibold text-primary-foreground">
                   A
                 </span>
-                <span className="font-semibold group-data-[collapsible=icon]:hidden">
-                  Aura Engine
-                </span>
+                <span className="font-semibold">Aura Engine</span>
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
-          <SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
+          <SidebarMenuItem>
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
