@@ -101,7 +101,19 @@ function BrandList() {
         </h1>
       </div>
 
-      {isLoading || brands === undefined ? (
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 size={16} className="animate-spin" />
+          Loading brands…
+        </div>
+      ) : !isAuthenticated ? (
+        <p className="text-sm text-muted-foreground">
+          Signed in with Clerk, but Convex could not verify the session. Check
+          that Vercel has production Clerk keys (<code>pk_live_</code>) and
+          Convex has <code>CLERK_JWT_ISSUER_DOMAIN</code> from the Clerk JWT
+          template named <code>convex</code>.
+        </p>
+      ) : brands === undefined ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 size={16} className="animate-spin" />
           Loading brands…
