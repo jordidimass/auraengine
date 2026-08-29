@@ -6,6 +6,7 @@ import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { AuthControls } from "@/components/auth/AuthControls";
 import { AsciiBanner } from "@/components/brand/AsciiBanner";
+import { CreateBrandForm } from "@/components/brands/CreateBrandForm";
 import { analyzePath, preferencesPath } from "@/lib/routes";
 import { api } from "../../convex/_generated/api";
 
@@ -108,10 +109,11 @@ function BrandList() {
         </div>
       ) : !isAuthenticated ? (
         <p className="text-sm text-muted-foreground">
-          Signed in with Clerk, but Convex could not verify the session. Check
-          that Vercel has production Clerk keys (<code>pk_live_</code>) and
-          Convex has <code>CLERK_JWT_ISSUER_DOMAIN</code> from the Clerk JWT
-          template named <code>convex</code>.
+          Clerk signed you in, but it has no JWT named{" "}
+          <code>convex</code>, so Convex cannot verify the session. In Clerk:
+          JWT Templates → New template → Convex (the name must be{" "}
+          <code>convex</code>), or activate the Convex integration. Then sign
+          out and back in.
         </p>
       ) : brands === undefined ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -119,40 +121,40 @@ function BrandList() {
           Loading brands…
         </div>
       ) : brands.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No brands yet. Create one via <code>brands.create</code> in the
-          Convex dashboard to open the analyze view.
-        </p>
+        <CreateBrandForm />
       ) : (
-        <ul className="grid gap-0 border border-border sm:grid-cols-2">
-          {brands.map((brand) => (
-            <li
-              key={brand._id}
-              className="flex flex-col gap-3 border-border p-4 sm:border-r sm:even:border-r-0 max-sm:border-b max-sm:last:border-b-0"
-            >
-              <div>
-                <p className="text-sm font-medium">{brand.name}</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {brand.description}
-                </p>
-              </div>
-              <div className="mt-auto flex gap-2">
-                <Link
-                  href={preferencesPath(brand._id)}
-                  className="text-xs uppercase tracking-widest text-muted-foreground transition hover:text-foreground"
-                >
-                  Preferences
-                </Link>
-                <Link
-                  href={analyzePath(brand._id)}
-                  className="text-xs uppercase tracking-widest text-primary transition hover:opacity-80"
-                >
-                  Analyze
-                </Link>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <>
+          <ul className="grid gap-0 border border-border sm:grid-cols-2">
+            {brands.map((brand) => (
+              <li
+                key={brand._id}
+                className="flex flex-col gap-3 border-border p-4 sm:border-r sm:even:border-r-0 max-sm:border-b max-sm:last:border-b-0"
+              >
+                <div>
+                  <p className="text-sm font-medium">{brand.name}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {brand.description}
+                  </p>
+                </div>
+                <div className="mt-auto flex gap-2">
+                  <Link
+                    href={preferencesPath(brand._id)}
+                    className="text-xs uppercase tracking-widest text-muted-foreground transition hover:text-foreground"
+                  >
+                    Preferences
+                  </Link>
+                  <Link
+                    href={analyzePath(brand._id)}
+                    className="text-xs uppercase tracking-widest text-primary transition hover:opacity-80"
+                  >
+                    Analyze
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <CreateBrandForm />
+        </>
       )}
     </main>
   );

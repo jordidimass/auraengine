@@ -1,12 +1,19 @@
 import type { AuthConfig } from "convex/server";
 
-// Requires a Clerk JWT template named "convex" — create it in the Clerk
-// dashboard (Configure > JWT Templates) and set CLERK_JWT_ISSUER_DOMAIN to
-// your Clerk Frontend API URL (e.g. https://your-app.clerk.accounts.dev).
+// Clerk must mint a JWT with aud: "convex". Either:
+// 1. Clerk Dashboard → JWT Templates → New → Convex (name must be "convex"), or
+// 2. Clerk Dashboard → Integrations → Convex → Activate
+// (https://dashboard.clerk.com/apps/setup/convex)
+//
+// Domain is the Clerk Frontend API URL for THIS instance
+// (dev: https://verb-noun-00.clerk.accounts.dev).
+const clerkIssuer =
+  process.env.CLERK_JWT_ISSUER_DOMAIN ?? process.env.CLERK_FRONTEND_API_URL;
+
 export default {
   providers: [
     {
-      domain: process.env.CLERK_JWT_ISSUER_DOMAIN!,
+      domain: clerkIssuer!,
       applicationID: "convex",
     },
   ],
