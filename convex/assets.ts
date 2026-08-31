@@ -410,6 +410,9 @@ async function generateFalImage(prompt: string): Promise<string> {
   return url;
 }
 
+// gpt-image-1 (unlike dall-e-3) never returns a hosted URL — it only
+// returns the image as base64 (b64_json), so this returns the raw base64
+// string instead of a URL for the caller to store directly.
 async function generateOpenAiImage(prompt: string): Promise<string> {
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
@@ -426,7 +429,7 @@ async function generateOpenAiImage(prompt: string): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "dall-e-3",
+      model: "gpt-image-1",
       prompt: prompt.slice(0, 3900),
       size: "1024x1024",
       n: 1,
@@ -440,28 +443,42 @@ async function generateOpenAiImage(prompt: string): Promise<string> {
     });
   }
   const body = (await response.json()) as {
-    data?: Array<{ url?: string }>;
+    data?: Array<{ b64_json?: string }>;
   };
-  const url = body.data?.[0]?.url;
-  if (!url) {
+  const b64 = body.data?.[0]?.b64_json;
+  if (!b64) {
     throw new ConvexError({
       code: "OPENAI_IMAGE_FAILED",
-      message: "OpenAI returned no image URL",
+      message: "OpenAI returned no image data",
     });
   }
-  return url;
+  return b64;
 }
 
-async function generateImageUrl(prompt: string): Promise<string> {
+function base64ToBlob(base64: string, contentType: string): Blob {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: contentType });
+}
+
+async function generateAndStoreImage(
+  ctx: { storage: { store: (blob: Blob) => Promise<Id<"_storage">> } },
+  prompt: string,
+): Promise<Id<"_storage">> {
   try {
-    return await generateFalImage(prompt);
+    const falUrl = await generateFalImage(prompt);
+    return await storeFromUrl(ctx, falUrl, "image/jpeg");
   } catch (falError) {
     console.error(
       "fal.ai image failed, trying OpenAI",
       falError instanceof Error ? falError.message : falError,
     );
     try {
-      return await generateOpenAiImage(prompt);
+      const b64 = await generateOpenAiImage(prompt);
+      return await ctx.storage.store(base64ToBlob(b64, "image/png"));
     } catch (openAiError) {
       const falMessage = publicErrorMessage(falError, "fal.ai failed");
       const openAiMessage = publicErrorMessage(openAiError, "OpenAI failed");
@@ -648,8 +665,7 @@ export const generateImage = action({
       kind: "image",
     });
     try {
-      const imageUrl = await generateImageUrl(prepared.visualPrompt);
-      const storageId = await storeFromUrl(ctx, imageUrl, "image/jpeg");
+      const storageId = await generateAndStoreImage(ctx, prepared.visualPrompt);
       await ctx.runMutation(internal.assets.finishGeneration, {
         assetId: prepared.assetId,
         kind: "image",
