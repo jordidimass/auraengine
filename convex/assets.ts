@@ -295,10 +295,11 @@ function falQueueEndpoints(model: string, submitted: FalQueueSubmission) {
   if (requestId === undefined || !/^[a-zA-Z0-9_-]+$/.test(requestId)) {
     return undefined;
   }
-  const base = `https://queue.fal.run/${model}/requests/${requestId}`;
+  const base =
+    `https://queue.fal.run/${model}/requests/${encodeURIComponent(requestId)}`;
   return {
     statusUrl: statusUrl ?? `${base}/status`,
-    resultUrl: resultUrl ?? base,
+    resultUrl: resultUrl ?? `${base}/response`,
   };
 }
 
@@ -588,6 +589,13 @@ async function generateFalVideo(
     }
     if (statusBody.status !== "COMPLETED") {
       continue;
+    }
+
+    if (statusBody.error) {
+      throw new ConvexError({
+        code: "FAL_VIDEO_FAILED",
+        message: statusBody.error.slice(0, 300),
+      });
     }
 
     const resultResponse = await fetch(endpoints.resultUrl, {
